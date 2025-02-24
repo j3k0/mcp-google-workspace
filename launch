@@ -1,0 +1,16 @@
+#!/bin/bash
+set -e
+
+cd "$(dirname "$0")"
+
+if test ! -e node_modules
+then
+  npm install
+fi
+
+if test ! -e dist/server.js
+then
+  npm run build
+fi
+
+node dist/server.js
