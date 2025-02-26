@@ -18,6 +18,75 @@ export class GmailTools {
     this.gmail = google.gmail({ version: 'v1', auth: this.gauth.getClient() });
   }
 
+  // Helper methods for email content extraction
+  private decodeBase64UrlString(base64UrlString: string): string {
+    try {
+      const base64String = base64UrlString.replace(/-/g, '+').replace(/_/g, '/');
+      const padding = '='.repeat((4 - base64String.length % 4) % 4);
+      const base64 = base64String + padding;
+      return Buffer.from(base64, 'base64').toString('utf-8');
+    } catch (error) {
+      console.error('Error decoding base64 string:', error);
+      return '[Error decoding content]';
+    }
+  }
+
+  private extractEmailText(payload: any): string {
+    // For simple text emails
+    if (payload.mimeType === 'text/plain' && payload.body?.data) {
+      return this.decodeBase64UrlString(payload.body.data);
+    }
+
+    // For HTML-only emails, we'll still return the HTML content
+    if (payload.mimeType === 'text/html' && payload.body?.data) {
+      return this.decodeBase64UrlString(payload.body.data);
+    }
+
+    // For multipart emails, look for text/plain part first, then text/html
+    if (payload.parts && Array.isArray(payload.parts)) {
+      // First try to find text/plain part
+      const textPart = payload.parts.find((part: any) => part.mimeType === 'text/plain');
+      if (textPart && textPart.body?.data) {
+        return this.decodeBase64UrlString(textPart.body.data);
+      }
+
+      // If no text/plain, try text/html
+      const htmlPart = payload.parts.find((part: any) => part.mimeType === 'text/html');
+      if (htmlPart && htmlPart.body?.data) {
+        return this.decodeBase64UrlString(htmlPart.body.data);
+      }
+
+      // Recursively check nested multipart structures
+      for (const part of payload.parts) {
+        if (part.parts) {
+          const nestedText = this.extractEmailText(part);
+          if (nestedText) {
+            return nestedText;
+          }
+        }
+      }
+    }
+
+    return '';
+  }
+
+  private extractEmailHeaders(headers: any[]): Record<string, string> {
+    const result: Record<string, string> = {};
+    const importantHeaders = ['from', 'to', 'cc', 'bcc', 'subject', 'date', 'reply-to'];
+    
+    if (headers && Array.isArray(headers)) {
+      headers.forEach(header => {
+        if (header.name && header.value) {
+          const headerName = header.name.toLowerCase();
+          if (importantHeaders.includes(headerName)) {
+            result[headerName] = header.value;
+          }
+        }
+      });
+    }
+    return result;
+  }
+
   getTools(): Tool[] {
     return [
       {
@@ -442,6 +511,12 @@ export class GmailTools {
         format: 'full'
       });
 
+      // Extract headers
+      const headers = this.extractEmailHeaders(email.data.payload?.headers || []);
+      
+      // Extract text content
+      const textContent = this.extractEmailText(email.data.payload || {});
+
       // Get attachments if any
       const attachments: Record<string, any> = {};
       if (email.data.payload?.parts) {
@@ -456,9 +531,15 @@ export class GmailTools {
         }
       }
 
+      // Create simplified email object
       const result = {
-        ...email.data,
-        attachments
+        id: email.data.id,
+        threadId: email.data.threadId,
+        labelIds: email.data.labelIds,
+        headers,
+        textContent,
+        hasAttachments: Object.keys(attachments).length > 0,
+        attachments: Object.keys(attachments).length > 0 ? attachments : undefined
       };
 
       return [{
@@ -491,6 +572,12 @@ export class GmailTools {
             format: 'full'
           });
 
+          // Extract headers
+          const headers = this.extractEmailHeaders(email.data.payload?.headers || []);
+          
+          // Extract text content
+          const textContent = this.extractEmailText(email.data.payload || {});
+
           // Get attachments if any
           const attachments: Record<string, any> = {};
           if (email.data.payload?.parts) {
@@ -505,12 +592,16 @@ export class GmailTools {
             }
           }
 
-          const result = {
-            ...email.data,
-            attachments
+          // Create simplified email object
+          return {
+            id: email.data.id,
+            threadId: email.data.threadId,
+            labelIds: email.data.labelIds,
+            headers,
+            textContent,
+            hasAttachments: Object.keys(attachments).length > 0,
+            attachments: Object.keys(attachments).length > 0 ? attachments : undefined
           };
-
-          return result;
         })
       );
 
@@ -642,21 +733,20 @@ export class GmailTools {
           `Subject: Re: ${headers.subject || ''}\r\n` +
           `To: ${headers.from || ''}\r\n` +
           `Cc: ${cc.join(', ')}\r\n` +
-          `Content-Type: text/plain; charset="UTF-8"\r\n` +
-          `\r\n` +
-          `${replyBody}`
-        ).toString('base64url'),
-        threadId: originalMessage.data.threadId
+          `Content-Type: text/plain; charset="UTF-8"\r\n`
+        ).toString('base64url')
       };
 
       if (send) {
-        const sent = await this.gmail.users.messages.send({
+        await this.gmail.users.messages.send({
           userId,
-          requestBody: message
+          requestBody: {
+            raw: message.raw
+          }
         });
         return [{
           type: 'text',
-          text: JSON.stringify(sent.data, null, 2)
+          text: 'Reply sent successfully'
         }];
       } else {
         const draft = await this.gmail.users.drafts.create({
@@ -671,12 +761,12 @@ export class GmailTools {
         }];
       }
     } catch (error) {
-      console.error('Error replying:', error);
+      console.error('Error replying to email:', error);
       throw error;
     }
   }
 
-  private async getAttachment(args: Record<string, any>): Promise<Array<TextContent | EmbeddedResource>> {
+  private async getAttachment(args: Record<string, any>): Promise<Array<TextContent>> {
     const userId = args[USER_ID_ARG];
     const messageId = args.message_id;
     const attachmentId = args.attachment_id;
@@ -707,29 +797,26 @@ export class GmailTools {
         id: attachmentId
       });
 
-      if (!attachment.data.data) {
-        throw new Error('No attachment data found');
+      const attachmentData = attachment.data.data;
+      if (!attachmentData) {
+        throw new Error('Attachment data not found');
       }
 
-      const decodedData = decodeBase64Data(attachment.data.data);
+      const decodedData = Buffer.from(attachmentData, 'base64').toString('utf-8');
+      const decodedContent = this.decodeBase64UrlString(decodedData);
 
       if (saveToDisk) {
-        await fs.promises.writeFile(saveToDisk, decodedData);
+        fs.writeFileSync(saveToDisk, decodedContent);
         return [{
           type: 'text',
-          text: `Attachment saved to disk: ${saveToDisk}`
+          text: `Attachment saved to ${saveToDisk}`
+        }];
+      } else {
+        return [{
+          type: 'text',
+          text: decodedContent
         }];
       }
-
-      const attachmentUrl = `attachment://gmail/${messageId}/${attachmentId}/${filename}`;
-      return [{
-        type: 'resource',
-        resource: {
-          blob: attachment.data.data,
-          uri: attachmentUrl,
-          mimeType
-        }
-      }];
     } catch (error) {
       console.error('Error getting attachment:', error);
       throw error;
@@ -748,11 +835,15 @@ export class GmailTools {
     }
 
     try {
-      const savedAttachments = await Promise.all(
-        attachments.map(async (attachmentInfo: Record<string, any>) => {
+      const results = await Promise.all(
+        attachments.map(async (attachmentInfo: any) => {
           const messageId = attachmentInfo.message_id;
           const partId = attachmentInfo.part_id;
           const savePath = attachmentInfo.save_path;
+
+          if (!messageId || !partId || !savePath) {
+            throw new Error('Missing required arguments: message_id, part_id, or save_path');
+          }
 
           const attachmentData = await this.gmail.users.messages.attachments.get({
             userId,
@@ -760,25 +851,28 @@ export class GmailTools {
             id: partId
           });
 
-          if (!attachmentData.data.data) {
-            throw new Error(`No data found for attachment ${partId} in message ${messageId}`);
+          const fileData = attachmentData.data.data;
+          if (!fileData) {
+            throw new Error('Attachment data not found');
           }
 
-          const decodedData = decodeBase64Data(attachmentData.data.data);
-          await fs.promises.writeFile(savePath, decodedData);
+          const decodedData = Buffer.from(fileData, 'base64').toString('utf-8');
+          const decodedContent = this.decodeBase64UrlString(decodedData);
+
+          fs.writeFileSync(savePath, decodedContent);
 
           return {
             messageId,
             partId,
             savePath,
-            size: attachmentData.data.size
+            status: 'success'
           };
         })
       );
 
       return [{
         type: 'text',
-        text: JSON.stringify(savedAttachments, null, 2)
+        text: JSON.stringify(results, null, 2)
       }];
     } catch (error) {
       console.error('Error saving attachments:', error);
@@ -798,12 +892,9 @@ export class GmailTools {
     }
 
     try {
-      await this.gmail.users.messages.modify({
+      await this.gmail.users.messages.trash({
         userId,
-        id: messageId,
-        requestBody: {
-          removeLabelIds: ['INBOX']
-        }
+        id: messageId
       });
 
       return [{
@@ -828,28 +919,26 @@ export class GmailTools {
     }
 
     try {
-      const archivedMessages = await Promise.all(
+      const results = await Promise.all(
         messageIds.map(async (messageId: string) => {
-          await this.gmail.users.messages.modify({
+          await this.gmail.users.messages.trash({
             userId,
-            id: messageId,
-            requestBody: {
-              removeLabelIds: ['INBOX']
-            }
+            id: messageId
           });
-          return messageId;
+          return {
+            messageId,
+            status: 'archived'
+          };
         })
       );
 
       return [{
         type: 'text',
-        text: `Messages ${archivedMessages.join(', ')} archived successfully`
+        text: JSON.stringify(results, null, 2)
       }];
     } catch (error) {
       console.error('Error archiving messages:', error);
       throw error;
     }
   }
-
-  // Add other tool implementations here...
 }
