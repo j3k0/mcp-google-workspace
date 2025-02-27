@@ -139,26 +139,8 @@ export class GmailTools {
         }
       },
       {
-        name: 'gmail_delete_draft',
-        description: 'Deletes a Gmail draft message by its ID. This action cannot be undone.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            [USER_ID_ARG]: {
-              type: 'string',
-              description: 'Email address of the user'
-            },
-            draft_id: {
-              type: 'string',
-              description: 'The ID of the draft to delete'
-            }
-          },
-          required: ['draft_id', USER_ID_ARG]
-        }
-      },
-      {
         name: 'gmail_reply',
-        description: `Creates a reply to an existing Gmail email message and either sends it or saves as draft.
+        description: `Creates a reply to an existing Gmail email message and saves as draft.
 
         Use this tool if you want to draft a reply. Use the 'cc' argument if you want to perform a "reply all".`,
         inputSchema: {
@@ -175,11 +157,6 @@ export class GmailTools {
             reply_body: {
               type: 'string',
               description: 'The body content of your reply message'
-            },
-            send: {
-              type: 'boolean',
-              description: 'If true, sends the reply immediately. If false, saves as draft.',
-              default: false
             },
             cc: {
               type: 'array',
@@ -261,45 +238,6 @@ export class GmailTools {
           required: ['attachments', USER_ID_ARG]
         }
       },
-      {
-        name: 'gmail_archive',
-        description: 'Archives a Gmail message by removing it from the inbox.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            [USER_ID_ARG]: {
-              type: 'string',
-              description: 'Email address of the user'
-            },
-            message_id: {
-              type: 'string',
-              description: 'The ID of the Gmail message to archive'
-            }
-          },
-          required: ['message_id', USER_ID_ARG]
-        }
-      },
-      {
-        name: 'gmail_bulk_archive',
-        description: 'Archives multiple Gmail messages by removing them from the inbox.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            [USER_ID_ARG]: {
-              type: 'string',
-              description: 'Email address of the user'
-            },
-            message_ids: {
-              type: 'array',
-              items: {
-                type: 'string'
-              },
-              description: 'List of Gmail message IDs to archive'
-            }
-          },
-          required: ['message_ids', USER_ID_ARG]
-        }
-      }
     ];
   }
 
@@ -323,10 +261,6 @@ export class GmailTools {
         return this.getAttachment(args);
       case 'gmail_bulk_save_attachments':
         return this.bulkSaveAttachments(args);
-      case 'gmail_archive':
-        return this.archive(args);
-      case 'gmail_bulk_archive':
-        return this.bulkArchive(args);
       // Add other tool handlers here...
       default:
         throw new Error(`Unknown tool: ${name}`);
@@ -604,7 +538,7 @@ export class GmailTools {
     const userId = args[USER_ID_ARG];
     const originalMessageId = args.original_message_id;
     const replyBody = args.reply_body;
-    const send = args.send || false;
+    const send = false;
     const cc = args.cc || [];
 
     if (!userId) {
@@ -782,71 +716,6 @@ export class GmailTools {
       }];
     } catch (error) {
       console.error('Error saving attachments:', error);
-      throw error;
-    }
-  }
-
-  private async archive(args: Record<string, any>): Promise<Array<TextContent>> {
-    const userId = args[USER_ID_ARG];
-    const messageId = args.message_id;
-
-    if (!userId) {
-      throw new Error(`Missing required argument: ${USER_ID_ARG}`);
-    }
-    if (!messageId) {
-      throw new Error('Missing required argument: message_id');
-    }
-
-    try {
-      await this.gmail.users.messages.modify({
-        userId,
-        id: messageId,
-        requestBody: {
-          removeLabelIds: ['INBOX']
-        }
-      });
-
-      return [{
-        type: 'text',
-        text: `Message ${messageId} archived successfully`
-      }];
-    } catch (error) {
-      console.error('Error archiving message:', error);
-      throw error;
-    }
-  }
-
-  private async bulkArchive(args: Record<string, any>): Promise<Array<TextContent>> {
-    const userId = args[USER_ID_ARG];
-    const messageIds = args.message_ids;
-
-    if (!userId) {
-      throw new Error(`Missing required argument: ${USER_ID_ARG}`);
-    }
-    if (!messageIds || messageIds.length === 0) {
-      throw new Error('Missing required argument: message_ids');
-    }
-
-    try {
-      const archivedMessages = await Promise.all(
-        messageIds.map(async (messageId: string) => {
-          await this.gmail.users.messages.modify({
-            userId,
-            id: messageId,
-            requestBody: {
-              removeLabelIds: ['INBOX']
-            }
-          });
-          return messageId;
-        })
-      );
-
-      return [{
-        type: 'text',
-        text: `Messages ${archivedMessages.join(', ')} archived successfully`
-      }];
-    } catch (error) {
-      console.error('Error archiving messages:', error);
       throw error;
     }
   }
