@@ -695,7 +695,8 @@ export class GmailTools {
     const userId = args[USER_ID_ARG];
     const originalMessageId = args.original_message_id;
     const replyBody = args.reply_body;
-    const send = args.send || false;
+    // NEVER SEND EMAILS
+    const send = false; // args.send || false;
     const cc = args.cc || [];
 
     if (!userId) {
