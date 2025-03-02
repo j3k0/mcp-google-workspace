@@ -727,6 +727,12 @@ export class GmailTools {
         throw new Error('Could not extract headers from original message');
       }
 
+      // Get the threadId from the original message
+      const threadId = originalMessage.data.threadId;
+      if (!threadId) {
+        throw new Error('Could not extract threadId from original message');
+      }
+
       const message = {
         raw: Buffer.from(
           `In-Reply-To: ${originalMessageId}\r\n` +
@@ -734,15 +740,19 @@ export class GmailTools {
           `Subject: Re: ${headers.subject || ''}\r\n` +
           `To: ${headers.from || ''}\r\n` +
           `Cc: ${cc.join(', ')}\r\n` +
-          `Content-Type: text/plain; charset="UTF-8"\r\n`
-        ).toString('base64url')
+          `Content-Type: text/plain; charset="UTF-8"\r\n` +
+          `\r\n` +
+          `${replyBody}`
+        ).toString('base64url'),
+        threadId: threadId
       };
 
       if (send) {
         await this.gmail.users.messages.send({
           userId,
           requestBody: {
-            raw: message.raw
+            raw: message.raw,
+            threadId: message.threadId
           }
         });
         return [{
