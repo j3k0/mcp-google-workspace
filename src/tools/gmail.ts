@@ -88,7 +88,7 @@ export class GmailTools {
   }
 
   getTools(): Tool[] {
-    return [
+    return ([
       {
         name: 'gmail_list_accounts',
         description: 'Lists all configured Google accounts that can be used with the Gmail tools. This tool does not require a user_id as it lists available accounts before selection.',
@@ -98,7 +98,7 @@ export class GmailTools {
           additionalProperties: false,
           required: []
         }
-      },
+      } as Tool,
       {
         name: 'gmail_query_emails',
         description: `Query Gmail emails based on an optional search query. 
@@ -369,7 +369,10 @@ export class GmailTools {
           required: ['message_ids', USER_ID_ARG]
         }
       }
-    ];
+    ] as Tool[]).filter(tool => (
+      (process.env.GMAIL_ALLOW_SENDING === 'true')
+      ? true
+      : (tool.name !== 'gmail_reply' && tool.name !== 'gmail_create_draft')));
   }
 
   async handleTool(name: string, args: Record<string, any>): Promise<Array<TextContent | ImageContent | EmbeddedResource>> {

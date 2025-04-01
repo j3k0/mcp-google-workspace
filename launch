@@ -5,12 +5,12 @@ cd "$(dirname "$0")"
 
 if test ! -e node_modules
 then
-  npm install
+  npm install > /dev/null 2>&1
 fi
 
 if test ! -e dist/server.js
 then
-  npm run build
+  npm run build > /dev/null 2>&1
 fi
 
 node dist/server.js

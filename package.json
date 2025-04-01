@@ -25,7 +25,7 @@
     "googleapis": "^133.0.0"
   },
   "devDependencies": {
-    "@types/node": "^20.17.14",
+    "@types/node": "^20.17.28",
     "ts-node": "^10.9.2",
     "typescript": "^5.0.0"
   },
