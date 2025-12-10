@@ -262,6 +262,37 @@ export class GmailTools {
         }
       },
       {
+        name: 'gmail_send_email',
+        description: `Sends a new email message (not a reply) immediately via Gmail.`,
+        inputSchema: {
+          type: 'object',
+          properties: {
+            [USER_ID_ARG]: {
+              type: 'string',
+              description: 'Email address of the user'
+            },
+            to: {
+              type: 'string',
+              description: 'Email address of the recipient'
+            },
+            subject: {
+              type: 'string',
+              description: 'Subject line of the email'
+            },
+            body: {
+              type: 'string',
+              description: 'Body content of the email'
+            },
+            cc: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Optional list of email addresses to CC'
+            }
+          },
+          required: ['to', 'subject', 'body', USER_ID_ARG]
+        }
+      },
+      {
         name: 'gmail_get_attachment',
         description: 'Retrieves a Gmail attachment by its ID.',
         inputSchema: {
@@ -372,7 +403,7 @@ export class GmailTools {
     ] as Tool[]).filter(tool => (
       (process.env.GMAIL_ALLOW_SENDING === 'true')
       ? true
-      : (tool.name !== 'gmail_reply' && tool.name !== 'gmail_create_draft')));
+      : (tool.name !== 'gmail_reply' && tool.name !== 'gmail_create_draft' && tool.name !== 'gmail_send_email')));
   }
 
   async handleTool(name: string, args: Record<string, any>): Promise<Array<TextContent | ImageContent | EmbeddedResource>> {
@@ -391,6 +422,8 @@ export class GmailTools {
         return this.deleteDraft(args);
       case 'gmail_reply':
         return this.reply(args);
+      case 'gmail_send_email':
+        return this.sendEmail(args);
       case 'gmail_get_attachment':
         return this.getAttachment(args);
       case 'gmail_bulk_save_attachments':
@@ -667,6 +700,65 @@ export class GmailTools {
     }
   }
 
+  private buildRawEmail(to: string, cc: string[], subject: string, body: string): string {
+    const headers = [
+      `To: ${to}`,
+      cc.length ? `Cc: ${cc.join(', ')}` : undefined,
+      `Subject: ${subject}`,
+      'Content-Type: text/plain; charset="UTF-8"',
+      '',
+      body
+    ].filter(Boolean) as string[];
+
+    const raw = Buffer.from(headers.join('\r\n'))
+      .toString('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+
+    return raw;
+  }
+
+  private async sendEmail(args: Record<string, any>): Promise<Array<TextContent>> {
+    const userId = args[USER_ID_ARG];
+    const to = args.to;
+    const subject = args.subject;
+    const body = args.body;
+    const cc = args.cc || [];
+
+    if (!userId) {
+      throw new Error(`Missing required argument: ${USER_ID_ARG}`);
+    }
+    if (!to) {
+      throw new Error('Missing required argument: to');
+    }
+    if (!subject) {
+      throw new Error('Missing required argument: subject');
+    }
+    if (!body) {
+      throw new Error('Missing required argument: body');
+    }
+
+    try {
+      const raw = this.buildRawEmail(to, cc, subject, body);
+      const response = await this.gmail.users.messages.send({
+        userId,
+        requestBody: { raw }
+      });
+
+      return [{
+        type: 'text',
+        text: JSON.stringify({
+          message: 'Email sent successfully',
+          id: response.data.id
+        }, null, 2)
+      }];
+    } catch (error) {
+      console.error('Error sending email:', error);
+      throw error;
+    }
+  }
+
   private async deleteDraft(args: Record<string, any>): Promise<Array<TextContent>> {
     const userId = args[USER_ID_ARG];
     const draftId = args.draft_id;
@@ -698,8 +790,7 @@ export class GmailTools {
     const userId = args[USER_ID_ARG];
     const originalMessageId = args.original_message_id;
     const replyBody = args.reply_body;
-    // NEVER SEND EMAILS
-    const send = false; // args.send || false;
+    const send = (process.env.GMAIL_ALLOW_SENDING === 'true') && (args.send || false);
     const cc = args.cc || [];
 
     if (!userId) {
