@@ -6,12 +6,15 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const REDIRECT_URI = 'http://localhost:4100/code';
-const SCOPES = [
+export const SCOPES = [
   'openid',
   'https://www.googleapis.com/auth/userinfo.email',
   'https://mail.google.com/',
-  'https://www.googleapis.com/auth/calendar'
+  'https://www.googleapis.com/auth/calendar',
+  'https://www.googleapis.com/auth/drive.readonly',
+  'https://www.googleapis.com/auth/documents.readonly',
+  'https://www.googleapis.com/auth/spreadsheets.readonly',
+  'https://www.googleapis.com/auth/presentations.readonly'
 ];
 
 export interface AccountInfo {
@@ -26,6 +29,7 @@ interface ServerConfig {
   gauthFile: string;
   accountsFile: string;
   credentialsDir: string;
+  oauthPort: number;
 }
 
 class AccountInfoImpl implements AccountInfo {
@@ -53,9 +57,11 @@ export class NoUserIdError extends Error {}
 export class GAuthService {
   private oauth2Client?: OAuth2Client;
   private config: ServerConfig;
+  private redirectUri: string;
 
   constructor(config: ServerConfig) {
     this.config = config;
+    this.redirectUri = `http://localhost:${config.oauthPort}/code`;
   }
 
   getConfig(): ServerConfig {
@@ -75,7 +81,7 @@ export class GAuthService {
       this.oauth2Client = new google.auth.OAuth2(
         credentials.installed.client_id,
         credentials.installed.client_secret,
-        REDIRECT_URI
+        this.redirectUri
       );
     } catch (error) {
       throw new Error(`Failed to initialize OAuth2 client: ${(error as Error).message}`);
@@ -211,5 +217,19 @@ export class GAuthService {
 
     const authorizationUrl = await this.getAuthorizationUrl(emailAddress, state);
     throw new NoRefreshTokenError(authorizationUrl);
+  }
+
+  credentialsHaveScopes(client: OAuth2Client): boolean {
+    const credsScopes = client.credentials.scope;
+    if (!credsScopes) {
+      return false;
+    }
+
+    const scopesList = Array.isArray(credsScopes)
+      ? credsScopes
+      : credsScopes.split(/\s+/).filter(Boolean);
+
+    const missing = SCOPES.filter(scope => !scopesList.includes(scope));
+    return missing.length === 0;
   }
 }

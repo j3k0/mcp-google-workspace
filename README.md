@@ -25,6 +25,14 @@ A Model Context Protocol server for Google Workspace services. This server provi
   - Support for multiple calendars
   - Custom timezone support
 
+- **Drive / Docs / Sheets / Slides (read-only)**
+  - List and fetch Drive file metadata
+  - Export Google Docs/Sheets/Slides via Drive
+  - Download non-Google-native files as resources
+  - Read Docs body text
+  - Read Sheets ranges (single or batch)
+  - Read Slides text content per slide
+
 ## Example Prompts
 
 Try these example prompts with your AI assistant:
@@ -41,6 +49,9 @@ Try these example prompts with your AI assistant:
 - "What do I have on my agenda tomorrow?"
 - "Check my private account's Family agenda for next week"
 - "I need to plan an event with Tim for 2hrs next week. Suggest some time slots"
+- "List my Drive docs and fetch the latest meeting notes"
+- "Read the `Sheet1!A1:D20` range from spreadsheet ABC"
+- "Pull text from my Slides deck to draft a summary"
 
 ## Prerequisites
 
@@ -85,9 +96,13 @@ Google Workspace (G Suite) APIs require OAuth2 authorization. Follow these steps
    ```json
    [
      "openid",
+  "https://www.googleapis.com/auth/userinfo.email",
      "https://mail.google.com/",
-     "https://www.googleapis.com/auth/calendar",
-     "https://www.googleapis.com/auth/userinfo.email"
+  "https://www.googleapis.com/auth/calendar",
+  "https://www.googleapis.com/auth/drive.readonly",
+  "https://www.googleapis.com/auth/documents.readonly",
+  "https://www.googleapis.com/auth/spreadsheets.readonly",
+  "https://www.googleapis.com/auth/presentations.readonly"
    ]
    ```
 
@@ -248,6 +263,34 @@ On Windows: Edit `%APPDATA%/Claude/claude_desktop_config.json`
    - Delete events by ID
    - Option for cancellation notifications
 
+### Drive Tools
+
+1. `drive_list_files`
+   - List files with optional Drive query
+2. `drive_get_file_metadata`
+   - Retrieve metadata for a file by ID
+3. `drive_export_file`
+   - Export Google Docs/Sheets/Slides to a target mime type (e.g., text/plain)
+4. `drive_download_file`
+   - Download non-Google-native files as embedded resources
+
+### Docs Tools
+
+1. `docs_get_document`
+   - Return the text content of a Google Doc
+
+### Sheets Tools
+
+1. `sheets_get_values`
+   - Read a range from a Google Sheet
+2. `sheets_batch_get_values`
+   - Read multiple ranges in a single call
+
+### Slides Tools
+
+1. `slides_get_presentation`
+   - Return slide text content for a presentation
+
 ## Development
 
 - Source code is in TypeScript under the `src/` directory
@@ -265,7 +308,11 @@ mcp-google-workspace/
 │   │   └── gauth.ts        # Google authentication service
 │   ├── tools/
 │   │   ├── gmail.ts        # Gmail tools implementation
-│   │   └── calendar.ts     # Calendar tools implementation
+│   │   ├── calendar.ts     # Calendar tools implementation
+│   │   ├── drive.ts        # Drive tools implementation
+│   │   ├── docs.ts         # Docs tools implementation
+│   │   ├── sheets.ts       # Sheets tools implementation
+│   │   └── slides.ts       # Slides tools implementation
 │   └── types/
 │       └── tool-handler.ts # Common types and interfaces
 ├── .gauth.json             # OAuth2 credentials

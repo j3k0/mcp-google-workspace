@@ -17,6 +17,10 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { GmailTools } from './tools/gmail.js';
 import { CalendarTools } from './tools/calendar.js';
+import { DriveTools } from './tools/drive.js';
+import { DocsTools } from './tools/docs.js';
+import { SheetsTools } from './tools/sheets.js';
+import { SlidesTools } from './tools/slides.js';
 import { GAuthService } from './services/gauth.js';
 import { ToolHandler } from './types/tool-handler.js';
 
@@ -33,6 +37,7 @@ interface ServerConfig {
   gauthFile: string;
   accountsFile: string;
   credentialsDir: string;
+  oauthPort: number;
 }
 
 class OAuthServer {
@@ -76,9 +81,14 @@ class OAuthServer {
 class GoogleWorkspaceServer {
   private server: Server;
   private gauth: GAuthService;
+  private oauthPort: number;
   private tools!: {
     gmail: GmailTools;
     calendar: CalendarTools;
+    drive: DriveTools;
+    docs: DocsTools;
+    sheets: SheetsTools;
+    slides: SlidesTools;
   };
 
   constructor(config: ServerConfig) {
@@ -86,6 +96,7 @@ class GoogleWorkspaceServer {
 
     // Initialize services
     this.gauth = new GAuthService(config);
+    this.oauthPort = config.oauthPort;
     
     // Initialize server
     this.server = new Server(
@@ -98,7 +109,11 @@ class GoogleWorkspaceServer {
     // Initialize tools after OAuth2 client is ready
     this.tools = {
       gmail: new GmailTools(this.gauth),
-      calendar: new CalendarTools(this.gauth)
+      calendar: new CalendarTools(this.gauth),
+      drive: new DriveTools(this.gauth),
+      docs: new DocsTools(this.gauth),
+      sheets: new SheetsTools(this.gauth),
+      slides: new SlidesTools(this.gauth)
     };
 
     this.setupHandlers();
@@ -106,10 +121,39 @@ class GoogleWorkspaceServer {
 
   private async startAuthFlow(userId: string) {
     const authUrl = await this.gauth.getAuthorizationUrl(userId, {});
-    spawn('open', [authUrl]);
+
+    logger.info(`OAuth flow starting for ${userId}. Opening browser at: ${authUrl}`);
+
+    // Open browser in a cross-platform way (mac: open, linux: xdg-open, windows: cmd /c start)
+    const isWin = process.platform === 'win32';
+    const browserEnv = (process.env.BROWSER || '').trim();
+    let cmd: string;
+    let args: string[];
+
+    if (browserEnv) {
+      const parts = browserEnv.split(/\s+/);
+      cmd = parts[0];
+      args = parts.slice(1);
+    } else if (isWin) {
+      cmd = 'cmd';
+      args = ['/c', 'start'];
+    } else if (process.platform === 'darwin') {
+      cmd = 'open';
+      args = [];
+    } else {
+      cmd = 'xdg-open';
+      args = [];
+    }
+
+    try {
+      spawn(cmd, [...args, authUrl], { stdio: 'ignore', shell: false });
+    } catch (err) {
+      logger.error(`Failed to launch browser. Open this URL manually: ${authUrl}`);
+    }
 
     const oauthServer = new OAuthServer(this.gauth);
-    oauthServer.listen(4100);
+    oauthServer.listen(this.oauthPort);
+    logger.info(`OAuth callback server listening on http://localhost:${this.oauthPort}/code`);
   }
 
   private async setupOAuth2(userId: string) {
@@ -124,6 +168,11 @@ class GoogleWorkspaceServer {
     let credentials = await this.gauth.getStoredCredentials(userId);
     if (!credentials) {
       await this.startAuthFlow(userId);
+      return;
+    } else if (!this.gauth.credentialsHaveScopes(credentials)) {
+      logger.info("stored credentials missing required scopes, starting OAuth flow");
+      await this.startAuthFlow(userId);
+      return;
     } else {
       const tokens = credentials.credentials;
       if (tokens.expiry_date && tokens.expiry_date < Date.now()) {
@@ -142,7 +191,11 @@ class GoogleWorkspaceServer {
       return {
         tools: [
           ...this.tools.gmail.getTools(),
-          ...this.tools.calendar.getTools()
+          ...this.tools.calendar.getTools(),
+          ...this.tools.drive.getTools(),
+          ...this.tools.docs.getTools(),
+          ...this.tools.sheets.getTools(),
+          ...this.tools.slides.getTools()
         ]
       };
     });
@@ -219,6 +272,14 @@ class GoogleWorkspaceServer {
             result = await this.tools.gmail.handleTool(name, args);
           } else if (name.startsWith('calendar_')) {
             result = await this.tools.calendar.handleTool(name, args);
+          } else if (name.startsWith('drive_')) {
+            result = await this.tools.drive.handleTool(name, args);
+          } else if (name.startsWith('docs_')) {
+            result = await this.tools.docs.handleTool(name, args);
+          } else if (name.startsWith('sheets_')) {
+            result = await this.tools.sheets.handleTool(name, args);
+          } else if (name.startsWith('slides_')) {
+            result = await this.tools.slides.handleTool(name, args);
           } else {
             throw new Error(`Unknown tool: ${name}`);
           }
@@ -261,6 +322,9 @@ class GoogleWorkspaceServer {
         const creds = await this.gauth.getStoredCredentials(account.email);
         if (creds) {
           logger.info(`found credentials for ${account.email}`);
+        } else {
+          logger.info(`no credentials for ${account.email}, starting OAuth flow`);
+          await this.startAuthFlow(account.email);
         }
       }
 
@@ -282,14 +346,16 @@ const { values } = parseArgs({
   options: {
     'gauth-file': { type: 'string', default: './.gauth.json' },
     'accounts-file': { type: 'string', default: './.accounts.json' },
-    'credentials-dir': { type: 'string', default: '.' }
+    'credentials-dir': { type: 'string', default: '.' },
+    'oauth-port': { type: 'string', default: '4100' }
   }
 });
 
 const config: ServerConfig = {
   gauthFile: values['gauth-file'] as string,
   accountsFile: values['accounts-file'] as string,
-  credentialsDir: values['credentials-dir'] as string
+  credentialsDir: values['credentials-dir'] as string,
+  oauthPort: parseInt(values['oauth-port'] as string, 10)
 };
 
 // Start the server
