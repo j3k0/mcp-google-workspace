@@ -5,9 +5,7 @@ import { parseArgs } from 'node:util';
 import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { parse as parseUrl } from 'url';
 import { parse as parseQueryString } from 'querystring';
-import { spawn } from 'child_process';
-import * as fs from 'fs/promises';
-import * as path from 'path';
+import open from 'open';
 
 // Load environment variables from .env file as fallback
 dotenv.config();
@@ -18,7 +16,6 @@ import { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprot
 import { GmailTools } from './tools/gmail.js';
 import { CalendarTools } from './tools/calendar.js';
 import { GAuthService } from './services/gauth.js';
-import { ToolHandler } from './types/tool-handler.js';
 
 // Configure logging
 const logger = {
@@ -106,7 +103,7 @@ class GoogleWorkspaceServer {
 
   private async startAuthFlow(userId: string) {
     const authUrl = await this.gauth.getAuthorizationUrl(userId, {});
-    spawn('open', [authUrl]);
+    open(authUrl);
 
     const oauthServer = new OAuthServer(this.gauth);
     oauthServer.listen(4100);
