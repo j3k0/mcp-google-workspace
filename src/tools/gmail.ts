@@ -369,6 +369,71 @@ export class GmailTools {
           required: ['message_ids', USER_ID_ARG]
         }
       }
+      ,
+      {
+        name: 'gmail_modify_labels',
+        description: 'Add or remove labels from a Gmail message. Can be used to label, unlabel, mark as read (remove UNREAD), or mark as unread (add UNREAD). Use gmail_list_labels to find label IDs.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            [USER_ID_ARG]: {
+              type: 'string',
+              description: 'Email address of the user'
+            },
+            message_id: {
+              type: 'string',
+              description: 'The ID of the Gmail message to modify'
+            },
+            add_label_ids: {
+              type: 'array',
+              items: {
+                type: 'string'
+              },
+              description: 'List of label IDs to add to the message'
+            },
+            remove_label_ids: {
+              type: 'array',
+              items: {
+                type: 'string'
+              },
+              description: 'List of label IDs to remove from the message'
+            }
+          },
+          required: ['message_id', USER_ID_ARG]
+        }
+      },
+      {
+        name: 'gmail_list_labels',
+        description: 'Lists all Gmail labels for the user account. Use this to find label IDs for use with gmail_modify_labels.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            [USER_ID_ARG]: {
+              type: 'string',
+              description: 'Email address of the user'
+            }
+          },
+          required: [USER_ID_ARG]
+        }
+      },
+      {
+        name: 'gmail_create_label',
+        description: 'Creates a new Gmail label. Returns the label ID which can be used with gmail_modify_labels.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            [USER_ID_ARG]: {
+              type: 'string',
+              description: 'Email address of the user'
+            },
+            label_name: {
+              type: 'string',
+              description: 'Name for the new label'
+            }
+          },
+          required: ['label_name', USER_ID_ARG]
+        }
+      }
     ] as Tool[]).filter(tool => (
       (process.env.GMAIL_ALLOW_SENDING === 'true')
       ? true
@@ -399,7 +464,12 @@ export class GmailTools {
         return this.archive(args);
       case 'gmail_bulk_archive':
         return this.bulkArchive(args);
-      // Add other tool handlers here...
+      case 'gmail_modify_labels':
+        return this.modifyLabels(args);
+      case 'gmail_list_labels':
+        return this.listLabels(args);
+      case 'gmail_create_label':
+        return this.createLabel(args);
       default:
         throw new Error(`Unknown tool: ${name}`);
     }
@@ -952,6 +1022,99 @@ export class GmailTools {
       }];
     } catch (error) {
       console.error('Error archiving messages:', error);
+      throw error;
+    }
+  }
+
+  private async modifyLabels(args: Record<string, any>): Promise<Array<TextContent>> {
+    const userId = args[USER_ID_ARG];
+    const messageId = args.message_id;
+    const addLabelIds = args.add_label_ids || [];
+    const removeLabelIds = args.remove_label_ids || [];
+
+    if (!userId) {
+      throw new Error(`Missing required argument: ${USER_ID_ARG}`);
+    }
+    if (!messageId) {
+      throw new Error('Missing required argument: message_id');
+    }
+
+    try {
+      await this.gmail.users.messages.modify({
+        userId,
+        id: messageId,
+        requestBody: {
+          addLabelIds,
+          removeLabelIds
+        }
+      });
+
+      return [{
+        type: 'text',
+        text: `Message ${messageId} labels updated. Added: [${addLabelIds.join(', ')}], Removed: [${removeLabelIds.join(', ')}]`
+      }];
+    } catch (error) {
+      console.error('Error modifying labels:', error);
+      throw error;
+    }
+  }
+
+  private async listLabels(args: Record<string, any>): Promise<Array<TextContent>> {
+    const userId = args[USER_ID_ARG];
+
+    if (!userId) {
+      throw new Error(`Missing required argument: ${USER_ID_ARG}`);
+    }
+
+    try {
+      const response = await this.gmail.users.labels.list({ userId });
+      const labels = (response.data.labels || []).map(label => ({
+        id: label.id,
+        name: label.name,
+        type: label.type
+      }));
+
+      return [{
+        type: 'text',
+        text: JSON.stringify(labels, null, 2)
+      }];
+    } catch (error) {
+      console.error('Error listing labels:', error);
+      throw error;
+    }
+  }
+
+  private async createLabel(args: Record<string, any>): Promise<Array<TextContent>> {
+    const userId = args[USER_ID_ARG];
+    const labelName = args.label_name;
+
+    if (!userId) {
+      throw new Error(`Missing required argument: ${USER_ID_ARG}`);
+    }
+    if (!labelName) {
+      throw new Error('Missing required argument: label_name');
+    }
+
+    try {
+      const response = await this.gmail.users.labels.create({
+        userId,
+        requestBody: {
+          name: labelName,
+          labelListVisibility: 'labelShow',
+          messageListVisibility: 'show'
+        }
+      });
+
+      return [{
+        type: 'text',
+        text: JSON.stringify({
+          message: `Label "${labelName}" created successfully`,
+          id: response.data.id,
+          name: response.data.name
+        }, null, 2)
+      }];
+    } catch (error) {
+      console.error('Error creating label:', error);
       throw error;
     }
   }
