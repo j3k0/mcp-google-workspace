@@ -395,10 +395,17 @@ export class GmailTools {
           required: ['message_ids', USER_ID_ARG]
         }
       }
-    ] as Tool[]).filter(tool => (
-      (process.env.GMAIL_ALLOW_SENDING === 'true')
-      ? true
-      : (tool.name !== 'gmail_reply' && tool.name !== 'gmail_create_draft')));
+    ] as Tool[]).filter(tool => {
+      // Draft creation & deletion are always allowed
+      if (tool.name === 'gmail_create_draft' || tool.name === 'gmail_delete_draft') {
+        return true;
+      }
+      // Reply (which can also save as draft) requires the sending flag
+      if (tool.name === 'gmail_reply') {
+        return process.env.GMAIL_ALLOW_SENDING === 'true';
+      }
+      return true;
+    });
   }
 
   async handleTool(name: string, args: Record<string, any>): Promise<Array<TextContent | ImageContent | EmbeddedResource>> {
