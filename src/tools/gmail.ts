@@ -4,6 +4,28 @@ import { google } from 'googleapis';
 import { USER_ID_ARG } from '../types/tool-handler.js';
 import { Buffer } from 'buffer';
 import fs from 'fs';
+import path from 'path';
+import os from 'os';
+
+// Default download directory: ~/Downloads/mcp-attachments
+const DEFAULT_ATTACHMENTS_DIR = path.join(os.homedir(), 'Downloads', 'mcp-attachments');
+
+/**
+ * Resolves `userPath` relative to `allowedDir` and throws if the result
+ * would escape outside that directory (path traversal protection).
+ */
+function validateAndResolvePath(userPath: string, allowedDir: string): string {
+  // Strip any leading slashes so the path is always treated as relative
+  const sanitized = path.normalize(userPath).replace(/^(\.\.(\/|\\|$))+/, '');
+  const resolved = path.resolve(allowedDir, sanitized);
+  if (!resolved.startsWith(path.resolve(allowedDir) + path.sep) &&
+      resolved !== path.resolve(allowedDir)) {
+    throw new Error(
+      `Path traversal detected: "${userPath}" resolves outside the allowed directory "${allowedDir}".`
+    );
+  }
+  return resolved;
+}
 
 function decodeBase64Data(fileData: string): Buffer {
   const standardBase64Data = fileData.replace(/-/g, '+').replace(/_/g, '/');
@@ -13,9 +35,13 @@ function decodeBase64Data(fileData: string): Buffer {
 
 export class GmailTools {
   private gmail: ReturnType<typeof google.gmail>;
+  private allowedDir: string;
 
-  constructor(private gauth: GAuthService) {
+  constructor(private gauth: GAuthService, attachmentsDir?: string) {
     this.gmail = google.gmail({ version: 'v1', auth: this.gauth.getClient() });
+    this.allowedDir = path.resolve(attachmentsDir ?? DEFAULT_ATTACHMENTS_DIR);
+    // Ensure the directory exists
+    fs.mkdirSync(this.allowedDir, { recursive: true });
   }
 
   // Helper methods for email content extraction
@@ -820,10 +846,12 @@ export class GmailTools {
       const decodedContent = this.decodeBase64UrlString(decodedData);
 
       if (saveToDisk) {
-        fs.writeFileSync(saveToDisk, decodedContent);
+        const safePath = validateAndResolvePath(saveToDisk, this.allowedDir);
+        fs.mkdirSync(path.dirname(safePath), { recursive: true });
+        fs.writeFileSync(safePath, decodedContent, { mode: 0o600 });
         return [{
           type: 'text',
-          text: `Attachment saved to ${saveToDisk}`
+          text: `Attachment saved to ${safePath}`
         }];
       } else {
         return [{
@@ -873,12 +901,14 @@ export class GmailTools {
           const decodedData = Buffer.from(fileData, 'base64').toString('utf-8');
           const decodedContent = this.decodeBase64UrlString(decodedData);
 
-          fs.writeFileSync(savePath, decodedContent);
+          const safePath = validateAndResolvePath(savePath, this.allowedDir);
+          fs.mkdirSync(path.dirname(safePath), { recursive: true });
+          fs.writeFileSync(safePath, decodedContent, { mode: 0o600 });
 
           return {
             messageId,
             partId,
-            savePath,
+            savePath: safePath,
             status: 'success'
           };
         })

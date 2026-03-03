@@ -30,6 +30,7 @@ interface ServerConfig {
   gauthFile: string;
   accountsFile: string;
   credentialsDir: string;
+  attachmentsDir?: string;
 }
 
 class OAuthServer {
@@ -78,7 +79,7 @@ class GoogleWorkspaceServer {
     calendar: CalendarTools;
   };
 
-  constructor(config: ServerConfig) {
+  constructor(private config: ServerConfig) {
     logger.info('Starting Google Workspace MCP Server...');
 
     // Initialize services
@@ -94,7 +95,7 @@ class GoogleWorkspaceServer {
   private async initializeTools() {
     // Initialize tools after OAuth2 client is ready
     this.tools = {
-      gmail: new GmailTools(this.gauth),
+      gmail: new GmailTools(this.gauth, this.config.attachmentsDir),
       calendar: new CalendarTools(this.gauth)
     };
 
@@ -277,16 +278,18 @@ class GoogleWorkspaceServer {
 const { values } = parseArgs({
   args: process.argv.slice(2),
   options: {
-    'gauth-file': { type: 'string', default: './.gauth.json' },
-    'accounts-file': { type: 'string', default: './.accounts.json' },
-    'credentials-dir': { type: 'string', default: '.' }
+    'gauth-file':       { type: 'string', default: './.gauth.json' },
+    'accounts-file':    { type: 'string', default: './.accounts.json' },
+    'credentials-dir':  { type: 'string', default: '.' },
+    'attachments-dir':  { type: 'string' }   // optional; defaults to ~/Downloads/mcp-attachments
   }
 });
 
 const config: ServerConfig = {
-  gauthFile: values['gauth-file'] as string,
-  accountsFile: values['accounts-file'] as string,
-  credentialsDir: values['credentials-dir'] as string
+  gauthFile:       values['gauth-file'] as string,
+  accountsFile:    values['accounts-file'] as string,
+  credentialsDir:  values['credentials-dir'] as string,
+  attachmentsDir:  values['attachments-dir'] as string | undefined
 };
 
 // Start the server
