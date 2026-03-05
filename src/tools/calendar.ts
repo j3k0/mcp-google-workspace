@@ -6,10 +6,11 @@ import { USER_ID_ARG } from '../types/tool-handler.js';
 const CALENDAR_ID_ARG = 'calendar_id';
 
 export class CalendarTools {
-  private calendar: ReturnType<typeof google.calendar>;
+  constructor(private gauth: GAuthService) {}
 
-  constructor(private gauth: GAuthService) {
-    this.calendar = google.calendar({ version: 'v3', auth: this.gauth.getClient() });
+  private getCalendarClient(userId: string) {
+    const client = this.gauth.getClientForUser(userId);
+    return google.calendar({ version: 'v3', auth: client });
   }
 
   getTools(): Tool[] {
@@ -26,7 +27,7 @@ export class CalendarTools {
       },
       {
         name: 'calendar_list',
-        description: `Lists all calendars accessible by the user. 
+        description: `Lists all calendars accessible by the user.
         Call it before any other tool whenever the user specifies a particular agenda (Family, Holidays, etc.).
         Returns detailed calendar metadata including access roles and timezone information.`,
         inputSchema: {
@@ -233,16 +234,18 @@ export class CalendarTools {
       throw new Error(`Missing required argument: ${USER_ID_ARG}`);
     }
 
+    const calendar = this.getCalendarClient(userId);
+
     try {
       console.error('Attempting to list calendars...');
-      const response = await this.calendar.calendarList.list();
-      const calendars = response.data.items?.map(calendar => ({
-        id: calendar.id,
-        summary: calendar.summary,
-        primary: calendar.primary || false,
-        timeZone: calendar.timeZone,
-        etag: calendar.etag,
-        accessRole: calendar.accessRole
+      const response = await calendar.calendarList.list();
+      const calendars = response.data.items?.map(cal => ({
+        id: cal.id,
+        summary: cal.summary,
+        primary: cal.primary || false,
+        timeZone: cal.timeZone,
+        etag: cal.etag,
+        accessRole: cal.accessRole
       })) || [];
 
       console.error(`Successfully retrieved ${calendars.length} calendars`);
@@ -261,6 +264,8 @@ export class CalendarTools {
     if (!userId) {
       throw new Error(`Missing required argument: ${USER_ID_ARG}`);
     }
+
+    const calendar = this.getCalendarClient(userId);
 
     try {
       const timeMin = args.time_min || new Date().toISOString();
@@ -281,7 +286,7 @@ export class CalendarTools {
         Object.assign(params, { timeMax: args.time_max });
       }
 
-      const response = await this.calendar.events.list(params);
+      const response = await calendar.events.list(params);
       const events = response.data.items?.map(event => ({
         id: event.id,
         summary: event.summary,
@@ -311,13 +316,15 @@ export class CalendarTools {
   private async createCalendarEvent(args: Record<string, any>): Promise<Array<TextContent>> {
     const userId = args[USER_ID_ARG];
     const required = ['summary', 'start_time', 'end_time'];
-    
+
     if (!userId) {
       throw new Error(`Missing required argument: ${USER_ID_ARG}`);
     }
     if (!required.every(key => key in args)) {
       throw new Error(`Missing required arguments: ${required.filter(key => !(key in args)).join(', ')}`);
     }
+
+    const calendar = this.getCalendarClient(userId);
 
     try {
       const timezone = args.timezone || 'UTC';
@@ -336,7 +343,7 @@ export class CalendarTools {
         attendees: args.attendees?.map((email: string) => ({ email }))
       };
 
-      const response = await this.calendar.events.insert({
+      const response = await calendar.events.insert({
         calendarId: args[CALENDAR_ID_ARG] || 'primary',
         requestBody: event,
         sendUpdates: args.send_notifications ? 'all' : 'none'
@@ -363,8 +370,10 @@ export class CalendarTools {
       throw new Error('Missing required argument: event_id');
     }
 
+    const calendar = this.getCalendarClient(userId);
+
     try {
-      await this.calendar.events.delete({
+      await calendar.events.delete({
         calendarId: args[CALENDAR_ID_ARG] || 'primary',
         eventId: eventId,
         sendUpdates: args.send_notifications ? 'all' : 'none'

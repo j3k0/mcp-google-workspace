@@ -10,7 +10,9 @@ const REDIRECT_URI = 'http://localhost:4100/code';
 const SCOPES = [
   'openid',
   'https://www.googleapis.com/auth/userinfo.email',
-  'https://mail.google.com/',
+  'https://www.googleapis.com/auth/gmail.readonly',
+  'https://www.googleapis.com/auth/gmail.compose',
+  'https://www.googleapis.com/auth/gmail.modify',
   'https://www.googleapis.com/auth/calendar'
 ];
 
@@ -52,6 +54,9 @@ export class NoUserIdError extends Error {}
 
 export class GAuthService {
   private oauth2Client?: OAuth2Client;
+  private clientCache: Map<string, OAuth2Client> = new Map();
+  private clientId?: string;
+  private clientSecret?: string;
   private config: ServerConfig;
 
   constructor(config: ServerConfig) {
@@ -72,9 +77,11 @@ export class GAuthService {
         throw new Error('Invalid OAuth2 credentials format in gauth file');
       }
 
+      this.clientId = credentials.installed.client_id;
+      this.clientSecret = credentials.installed.client_secret;
       this.oauth2Client = new google.auth.OAuth2(
-        credentials.installed.client_id,
-        credentials.installed.client_secret,
+        this.clientId,
+        this.clientSecret,
         REDIRECT_URI
       );
     } catch (error) {
@@ -89,6 +96,24 @@ export class GAuthService {
     return this.oauth2Client;
   }
 
+  getClientForUser(userId: string): OAuth2Client {
+    const client = this.clientCache.get(userId);
+    if (client) {
+      return client;
+    }
+    return this.getClient();
+  }
+
+  private createClientForUser(credentials: Credentials): OAuth2Client {
+    const client = new OAuth2Client(
+      this.clientId,
+      this.clientSecret,
+      REDIRECT_URI
+    );
+    client.setCredentials(credentials);
+    return client;
+  }
+
   private getCredentialFilename(userId: string): string {
     return path.join(this.config.credentialsDir, `.oauth2.${userId}.json`);
   }
@@ -98,7 +123,7 @@ export class GAuthService {
       const accountsPath = path.resolve(process.cwd(), this.config.accountsFile);
       const data = await fs.readFile(accountsPath, 'utf8');
       const { accounts } = JSON.parse(data);
-      
+
       if (!Array.isArray(accounts)) {
         throw new Error('Invalid accounts format in accounts file');
       }
@@ -119,12 +144,21 @@ export class GAuthService {
       return null;
     }
 
+    // Return cached client if available
+    const cached = this.clientCache.get(userId);
+    if (cached) {
+      return cached;
+    }
+
     try {
       const credFilePath = this.getCredentialFilename(userId);
       const data = await fs.readFile(credFilePath, 'utf8');
       const credentials = JSON.parse(data);
-      this.oauth2Client.setCredentials(credentials);
-      return this.oauth2Client;
+
+      // Create a dedicated client per account to avoid race conditions
+      const client = this.createClientForUser(credentials);
+      this.clientCache.set(userId, client);
+      return client;
     } catch (error) {
       console.warn(`No stored OAuth2 credentials yet for user: ${userId}`);
       return null;
@@ -189,6 +223,9 @@ export class GAuthService {
 
       if (credentials.credentials.refresh_token) {
         await this.storeCredentials(credentials, emailAddress);
+        // Cache the per-account client
+        const client = this.createClientForUser(credentials.credentials);
+        this.clientCache.set(emailAddress, client);
         return credentials;
       } else {
         const storedCredentials = await this.getStoredCredentials(emailAddress);

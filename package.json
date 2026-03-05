@@ -19,7 +19,7 @@
     "node": ">=18"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "latest",
+    "@modelcontextprotocol/sdk": "^1.6.0",
     "axios": "^1.6.0",
     "dotenv": "^16.0.0",
     "googleapis": "^133.0.0",
