@@ -4,27 +4,26 @@ import { google } from 'googleapis';
 import { USER_ID_ARG } from '../types/tool-handler.js';
 import { Buffer } from 'buffer';
 import fs from 'fs';
+import path from 'path';
 
-function decodeBase64Data(fileData: string): Buffer {
-  const standardBase64Data = fileData.replace(/-/g, '+').replace(/_/g, '/');
-  const padding = '='.repeat((4 - standardBase64Data.length % 4) % 4);
-  return Buffer.from(standardBase64Data + padding, 'base64');
+function decodeBase64Url(data: string): Buffer {
+  const standardBase64 = data.replace(/-/g, '+').replace(/_/g, '/');
+  const padding = '='.repeat((4 - standardBase64.length % 4) % 4);
+  return Buffer.from(standardBase64 + padding, 'base64');
 }
 
 export class GmailTools {
-  private gmail: ReturnType<typeof google.gmail>;
+  constructor(private gauth: GAuthService) {}
 
-  constructor(private gauth: GAuthService) {
-    this.gmail = google.gmail({ version: 'v1', auth: this.gauth.getClient() });
+  private getGmailClient(userId: string) {
+    const client = this.gauth.getClientForUser(userId);
+    return google.gmail({ version: 'v1', auth: client });
   }
 
   // Helper methods for email content extraction
   private decodeBase64UrlString(base64UrlString: string): string {
     try {
-      const base64String = base64UrlString.replace(/-/g, '+').replace(/_/g, '/');
-      const padding = '='.repeat((4 - base64String.length % 4) % 4);
-      const base64 = base64String + padding;
-      return Buffer.from(base64, 'base64').toString('utf-8');
+      return decodeBase64Url(base64UrlString).toString('utf-8');
     } catch (error) {
       console.error('Error decoding base64 string:', error);
       return '[Error decoding content]';
@@ -73,7 +72,7 @@ export class GmailTools {
   private extractEmailHeaders(headers: any[]): Record<string, string> {
     const result: Record<string, string> = {};
     const importantHeaders = ['from', 'to', 'cc', 'bcc', 'subject', 'date', 'reply-to'];
-    
+
     if (headers && Array.isArray(headers)) {
       headers.forEach(header => {
         if (header.name && header.value) {
@@ -85,6 +84,15 @@ export class GmailTools {
       });
     }
     return result;
+  }
+
+  private validateSavePath(savePath: string): string {
+    const resolved = path.resolve(savePath);
+    const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+    if (!homeDir || !resolved.startsWith(homeDir)) {
+      throw new Error(`Save path must be under the user home directory: ${homeDir}`);
+    }
+    return resolved;
   }
 
   getTools(): Tool[] {
@@ -101,7 +109,7 @@ export class GmailTools {
       } as Tool,
       {
         name: 'gmail_query_emails',
-        description: `Query Gmail emails based on an optional search query. 
+        description: `Query Gmail emails based on an optional search query.
         Returns emails in reverse chronological order (newest first).
         Returns metadata such as subject and also a short summary of the content.`,
         inputSchema: {
@@ -174,7 +182,7 @@ export class GmailTools {
       {
         name: 'gmail_create_draft',
         description: `Creates a draft email message from scratch in Gmail with specified recipient, subject, body, and optional CC recipients.
-        
+
         Do NOT use this tool when you want to draft or send a REPLY to an existing message. This tool does NOT include any previous message content. Use the reply_gmail_email tool
         with send=false instead.`,
         inputSchema: {
@@ -289,7 +297,7 @@ export class GmailTools {
             },
             save_to_disk: {
               type: 'string',
-              description: 'The fullpath to save the attachment to disk. If not provided, the attachment is returned as a resource.'
+              description: 'The fullpath to save the attachment to disk. Must be under the user home directory. If not provided, the attachment is returned as a resource.'
             }
           },
           required: ['message_id', 'attachment_id', 'mime_type', 'filename', USER_ID_ARG]
@@ -320,7 +328,7 @@ export class GmailTools {
                   },
                   save_path: {
                     type: 'string',
-                    description: 'Path where the attachment should be saved'
+                    description: 'Path where the attachment should be saved. Must be under the user home directory.'
                   }
                 },
                 required: ['message_id', 'part_id', 'save_path']
@@ -399,7 +407,6 @@ export class GmailTools {
         return this.archive(args);
       case 'gmail_bulk_archive':
         return this.bulkArchive(args);
-      // Add other tool handlers here...
       default:
         throw new Error(`Unknown tool: ${name}`);
     }
@@ -450,8 +457,10 @@ export class GmailTools {
       throw new Error(`Missing required argument: ${USER_ID_ARG}`);
     }
 
+    const gmail = this.getGmailClient(userId);
+
     try {
-      const response = await this.gmail.users.messages.list({
+      const response = await gmail.users.messages.list({
         userId,
         q: args.query,
         maxResults: args.max_results || 100
@@ -460,7 +469,7 @@ export class GmailTools {
       const messages = response.data.messages || [];
       const emails = await Promise.all(
         messages.map(async (msg) => {
-          const email = await this.gmail.users.messages.get({
+          const email = await gmail.users.messages.get({
             userId,
             id: msg.id!,
             format: 'metadata',
@@ -507,8 +516,10 @@ export class GmailTools {
       throw new Error('Missing required argument: email_id');
     }
 
+    const gmail = this.getGmailClient(userId);
+
     try {
-      const email = await this.gmail.users.messages.get({
+      const email = await gmail.users.messages.get({
         userId,
         id: emailId,
         format: 'full'
@@ -516,7 +527,7 @@ export class GmailTools {
 
       // Extract headers
       const headers = this.extractEmailHeaders(email.data.payload?.headers || []);
-      
+
       // Extract text content
       const textContent = this.extractEmailText(email.data.payload || {});
 
@@ -566,10 +577,12 @@ export class GmailTools {
       throw new Error('Missing required argument: email_ids');
     }
 
+    const gmail = this.getGmailClient(userId);
+
     try {
       const emails = await Promise.all(
         emailIds.map(async (emailId: string) => {
-          const email = await this.gmail.users.messages.get({
+          const email = await gmail.users.messages.get({
             userId,
             id: emailId,
             format: 'full'
@@ -577,7 +590,7 @@ export class GmailTools {
 
           // Extract headers
           const headers = this.extractEmailHeaders(email.data.payload?.headers || []);
-          
+
           // Extract text content
           const textContent = this.extractEmailText(email.data.payload || {});
 
@@ -638,6 +651,8 @@ export class GmailTools {
       throw new Error('Missing required argument: body');
     }
 
+    const gmail = this.getGmailClient(userId);
+
     try {
       const message = {
         raw: Buffer.from(
@@ -650,7 +665,7 @@ export class GmailTools {
         ).toString('base64url')
       };
 
-      const draft = await this.gmail.users.drafts.create({
+      const draft = await gmail.users.drafts.create({
         userId,
         requestBody: {
           message
@@ -678,8 +693,10 @@ export class GmailTools {
       throw new Error('Missing required argument: draft_id');
     }
 
+    const gmail = this.getGmailClient(userId);
+
     try {
-      await this.gmail.users.drafts.delete({
+      await gmail.users.drafts.delete({
         userId,
         id: draftId
       });
@@ -712,9 +729,11 @@ export class GmailTools {
       throw new Error('Missing required argument: reply_body');
     }
 
+    const gmail = this.getGmailClient(userId);
+
     try {
       // First get the original message to extract headers
-      const originalMessage = await this.gmail.users.messages.get({
+      const originalMessage = await gmail.users.messages.get({
         userId,
         id: originalMessageId
       });
@@ -751,7 +770,7 @@ export class GmailTools {
       };
 
       if (send) {
-        await this.gmail.users.messages.send({
+        await gmail.users.messages.send({
           userId,
           requestBody: {
             raw: message.raw,
@@ -763,7 +782,7 @@ export class GmailTools {
           text: 'Reply sent successfully'
         }];
       } else {
-        const draft = await this.gmail.users.drafts.create({
+        const draft = await gmail.users.drafts.create({
           userId,
           requestBody: {
             message
@@ -804,8 +823,10 @@ export class GmailTools {
       throw new Error('Missing required argument: filename');
     }
 
+    const gmail = this.getGmailClient(userId);
+
     try {
-      const attachment = await this.gmail.users.messages.attachments.get({
+      const attachment = await gmail.users.messages.attachments.get({
         userId,
         messageId,
         id: attachmentId
@@ -816,20 +837,29 @@ export class GmailTools {
         throw new Error('Attachment data not found');
       }
 
-      const decodedData = Buffer.from(attachmentData, 'base64').toString('utf-8');
-      const decodedContent = this.decodeBase64UrlString(decodedData);
+      // Gmail API returns base64url-encoded data — decode to raw bytes
+      const rawBuffer = decodeBase64Url(attachmentData);
 
       if (saveToDisk) {
-        fs.writeFileSync(saveToDisk, decodedContent);
+        const safePath = this.validateSavePath(saveToDisk);
+        fs.writeFileSync(safePath, rawBuffer);
         return [{
           type: 'text',
-          text: `Attachment saved to ${saveToDisk}`
+          text: `Attachment saved to ${safePath}`
         }];
       } else {
-        return [{
-          type: 'text',
-          text: decodedContent
-        }];
+        // For text-based attachments, return as text; for binary, return base64
+        if (mimeType.startsWith('text/')) {
+          return [{
+            type: 'text',
+            text: rawBuffer.toString('utf-8')
+          }];
+        } else {
+          return [{
+            type: 'text',
+            text: `Binary attachment (${mimeType}, ${rawBuffer.length} bytes). Use save_to_disk to download.`
+          }];
+        }
       }
     } catch (error) {
       console.error('Error getting attachment:', error);
@@ -848,6 +878,8 @@ export class GmailTools {
       throw new Error('Missing required argument: attachments');
     }
 
+    const gmail = this.getGmailClient(userId);
+
     try {
       const results = await Promise.all(
         attachments.map(async (attachmentInfo: any) => {
@@ -859,7 +891,9 @@ export class GmailTools {
             throw new Error('Missing required arguments: message_id, part_id, or save_path');
           }
 
-          const attachmentData = await this.gmail.users.messages.attachments.get({
+          const safePath = this.validateSavePath(savePath);
+
+          const attachmentData = await gmail.users.messages.attachments.get({
             userId,
             messageId,
             id: partId
@@ -870,15 +904,14 @@ export class GmailTools {
             throw new Error('Attachment data not found');
           }
 
-          const decodedData = Buffer.from(fileData, 'base64').toString('utf-8');
-          const decodedContent = this.decodeBase64UrlString(decodedData);
-
-          fs.writeFileSync(savePath, decodedContent);
+          // Gmail API returns base64url-encoded data — decode to raw bytes
+          const rawBuffer = decodeBase64Url(fileData);
+          fs.writeFileSync(safePath, rawBuffer);
 
           return {
             messageId,
             partId,
-            savePath,
+            savePath: safePath,
             status: 'success'
           };
         })
@@ -905,10 +938,15 @@ export class GmailTools {
       throw new Error('Missing required argument: message_id');
     }
 
+    const gmail = this.getGmailClient(userId);
+
     try {
-      await this.gmail.users.messages.trash({
+      await gmail.users.messages.modify({
         userId,
-        id: messageId
+        id: messageId,
+        requestBody: {
+          removeLabelIds: ['INBOX']
+        }
       });
 
       return [{
@@ -932,12 +970,17 @@ export class GmailTools {
       throw new Error('Missing required argument: message_ids');
     }
 
+    const gmail = this.getGmailClient(userId);
+
     try {
       const results = await Promise.all(
         messageIds.map(async (messageId: string) => {
-          await this.gmail.users.messages.trash({
+          await gmail.users.messages.modify({
             userId,
-            id: messageId
+            id: messageId,
+            requestBody: {
+              removeLabelIds: ['INBOX']
+            }
           });
           return {
             messageId,
