@@ -30,6 +30,7 @@ A Model Context Protocol server for Google Workspace services. This server provi
 Try these example prompts with your AI assistant:
 
 ### Gmail
+
 - "Retrieve my latest unread messages"
 - "Search my emails from the Scrum Master"
 - "Retrieve all emails from accounting"
@@ -38,6 +39,7 @@ Try these example prompts with your AI assistant:
 - "Reply to Bob's email with a Thank you note. Store it as draft"
 
 ### Calendar
+
 - "What do I have on my agenda tomorrow?"
 - "Check my private account's Family agenda for next week"
 - "I need to plan an event with Tim for 2hrs next week. Suggest some time slots"
@@ -51,17 +53,20 @@ Try these example prompts with your AI assistant:
 ## Installation
 
 1. Clone the repository:
+
    ```bash
    git clone https://github.com/j3k0/mcp-google-workspace.git
    cd mcp-google-workspace
    ```
 
 2. Install dependencies:
+
    ```bash
    npm install
    ```
 
 3. Build the TypeScript code:
+
    ```bash
    npm run build
    ```
@@ -82,16 +87,19 @@ Google Workspace (G Suite) APIs require OAuth2 authorization. Follow these steps
    - Add authorized redirect URIs (include `http://localhost:4100/code` for local development)
 
 2. Required OAuth2 Scopes:
+
    ```json
    [
      "openid",
      "https://mail.google.com/",
+     "https://www.googleapis.com/auth/gmail.settings.basic",
      "https://www.googleapis.com/auth/calendar",
      "https://www.googleapis.com/auth/userinfo.email"
    ]
    ```
 
 3. Create a `.gauth.json` file in the project root with your Google OAuth 2.0 credentials:
+
    ```json
    {
      "installed": {
@@ -107,6 +115,7 @@ Google Workspace (G Suite) APIs require OAuth2 authorization. Follow these steps
    ```
 
 4. Create a `.accounts.json` file to specify which Google accounts can use the server:
+
    ```json
    {
      "accounts": [
@@ -141,6 +150,7 @@ On Windows: Edit `%APPDATA%/Claude/claude_desktop_config.json`
   }
 }
 ```
+
 </details>
 
 <details>
@@ -158,11 +168,13 @@ On Windows: Edit `%APPDATA%/Claude/claude_desktop_config.json`
   }
 }
 ```
+
 </details>
 
 ## Usage
 
 1. Start the server:
+
    ```bash
    npm start
    ```
