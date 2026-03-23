@@ -66,6 +66,14 @@ Try these example prompts with your AI assistant:
    npm run build
    ```
 
+4. Authenticate your accounts:
+   ```bash
+   npm run authenticate
+   ```
+
+   This opens a browser for each configured account to complete OAuth consent.
+   To re-authenticate a specific account: `npm run authenticate -- user@gmail.com --force`
+
 ## Configuration
 
 ### OAuth 2.0 Setup
