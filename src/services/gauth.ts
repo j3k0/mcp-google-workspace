@@ -91,7 +91,12 @@ export class GAuthService {
   }
 
   private getCredentialFilename(userId: string): string {
-    return path.join(this.config.credentialsDir, `.oauth2.${userId}.json`);
+    const credPath = path.resolve(this.config.credentialsDir, `.oauth2.${userId}.json`);
+    const credDir = path.resolve(this.config.credentialsDir);
+    if (!credPath.startsWith(credDir + path.sep) && credPath !== credDir) {
+      throw new Error('Invalid user ID');
+    }
+    return credPath;
   }
 
   async getAccountInfo(): Promise<AccountInfo[]> {
@@ -135,7 +140,7 @@ export class GAuthService {
   async storeCredentials(client: OAuth2Client, userId: string): Promise<void> {
     const credFilePath = this.getCredentialFilename(userId);
     await fs.mkdir(path.dirname(credFilePath), { recursive: true });
-    await fs.writeFile(credFilePath, JSON.stringify(client.credentials, null, 2));
+    await fs.writeFile(credFilePath, JSON.stringify(client.credentials, null, 2), { mode: 0o600 });
   }
 
   async exchangeCode(authorizationCode: string): Promise<OAuth2Client> {

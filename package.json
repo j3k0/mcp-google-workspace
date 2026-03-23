@@ -4,7 +4,8 @@
   "version": "1.0.0",
   "type": "module",
   "bin": {
-    "mcp-gmail": "./dist/server.js"
+    "mcp-gmail": "./dist/server.js",
+    "mcp-gmail-authenticate": "./dist/authenticate.js"
   },
   "files": [
     "dist",
@@ -16,7 +17,7 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "latest",
