@@ -44,7 +44,7 @@ Try these example prompts with your AI assistant:
 
 ## Prerequisites
 
-- Node.js >= 18
+- Node.js >= 20
 - A Google Cloud project with Gmail and Calendar APIs enabled
 - OAuth 2.0 credentials for Google APIs
 
@@ -121,6 +121,33 @@ Google Workspace (G Suite) APIs require OAuth2 authorization. Follow these steps
    ```
 
    You can specify multiple accounts. Make sure they have access in your Google Auth app. The `extra_info` field is especially useful as you can add information here that you want to tell the AI about the account (e.g., whether it has a specific calendar).
+
+### Authenticate
+
+Once `.gauth.json` and `.accounts.json` are configured, authenticate your accounts:
+
+```bash
+npm run authenticate
+```
+
+This opens a browser for each configured account to complete the OAuth consent flow. The script waits up to 5 minutes per account for the callback.
+
+```bash
+# Authenticate a specific account
+npm run authenticate -- user@gmail.com
+
+# Force re-authentication (e.g. after OAuth scope changes)
+npm run authenticate -- user@gmail.com --force
+
+# Custom config paths (same flags as the server)
+npm run authenticate -- --gauth-file /path/to/.gauth.json --accounts-file /path/to/.accounts.json
+```
+
+If installed via npm, you can also run:
+
+```bash
+npx mcp-gmail-authenticate
+```
 
 ### Claude Desktop Configuration
 

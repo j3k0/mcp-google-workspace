@@ -4,7 +4,8 @@
   "version": "1.0.0",
   "type": "module",
   "bin": {
-    "mcp-gmail": "./dist/server.js"
+    "mcp-gmail": "./dist/server.js",
+    "mcp-gmail-authenticate": "./dist/authenticate.js"
   },
   "files": [
     "dist",
@@ -16,7 +17,7 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "latest",
@@ -34,6 +35,7 @@
     "prepublishOnly": "npm run build",
     "build": "tsc",
     "start": "node --loader ts-node/esm src/server.ts",
-    "dev": "node --loader ts-node/esm src/server.ts"
+    "dev": "node --loader ts-node/esm src/server.ts",
+    "authenticate": "node --loader ts-node/esm src/authenticate.ts"
   }
 }
