@@ -4,6 +4,7 @@ import { google } from 'googleapis';
 import { USER_ID_ARG } from '../types/tool-handler.js';
 import { Buffer } from 'buffer';
 import fs from 'fs';
+import * as path from 'path';
 
 function decodeBase64Data(fileData: string): Buffer {
   const standardBase64Data = fileData.replace(/-/g, '+').replace(/_/g, '/');
@@ -29,6 +30,25 @@ export class GmailTools {
       console.error('Error decoding base64 string:', error);
       return '[Error decoding content]';
     }
+  }
+
+  /**
+   * Strips CR and LF characters from email header values to prevent header injection.
+   */
+  private sanitizeHeader(value: string): string {
+    return value.replace(/[\r\n]/g, '');
+  }
+
+  /**
+   * Validates that a save path does not escape its parent directory via traversal.
+   */
+  private validateSavePath(filePath: string): string {
+    const resolved = path.resolve(filePath);
+    const dir = path.resolve(path.dirname(filePath));
+    if (resolved.includes('..') || dir.includes('..')) {
+      throw new Error(`Path traversal detected: ${filePath}`);
+    }
+    return resolved;
   }
 
   private extractEmailText(payload: any): string {
@@ -641,9 +661,9 @@ export class GmailTools {
     try {
       const message = {
         raw: Buffer.from(
-          `To: ${to}\r\n` +
-          `Subject: ${subject}\r\n` +
-          `Cc: ${cc.join(', ')}\r\n` +
+          `To: ${this.sanitizeHeader(to)}\r\n` +
+          `Subject: ${this.sanitizeHeader(subject)}\r\n` +
+          `Cc: ${cc.map((c: string) => this.sanitizeHeader(c)).join(', ')}\r\n` +
           `Content-Type: text/plain; charset="UTF-8"\r\n` +
           `\r\n` +
           `${body}`
@@ -738,11 +758,11 @@ export class GmailTools {
 
       const message = {
         raw: Buffer.from(
-          `In-Reply-To: ${originalMessageId}\r\n` +
-          `References: ${originalMessageId}\r\n` +
-          `Subject: Re: ${headers.subject || ''}\r\n` +
-          `To: ${headers.from || ''}\r\n` +
-          `Cc: ${cc.join(', ')}\r\n` +
+          `In-Reply-To: ${this.sanitizeHeader(originalMessageId)}\r\n` +
+          `References: ${this.sanitizeHeader(originalMessageId)}\r\n` +
+          `Subject: Re: ${this.sanitizeHeader(headers.subject || '')}\r\n` +
+          `To: ${this.sanitizeHeader(headers.from || '')}\r\n` +
+          `Cc: ${cc.map((c: string) => this.sanitizeHeader(c)).join(', ')}\r\n` +
           `Content-Type: text/plain; charset="UTF-8"\r\n` +
           `\r\n` +
           `${replyBody}`
@@ -820,10 +840,11 @@ export class GmailTools {
       const decodedContent = this.decodeBase64UrlString(decodedData);
 
       if (saveToDisk) {
-        fs.writeFileSync(saveToDisk, decodedContent);
+        const validatedPath = this.validateSavePath(saveToDisk);
+        fs.writeFileSync(validatedPath, decodedContent);
         return [{
           type: 'text',
-          text: `Attachment saved to ${saveToDisk}`
+          text: `Attachment saved to ${validatedPath}`
         }];
       } else {
         return [{
@@ -873,7 +894,8 @@ export class GmailTools {
           const decodedData = Buffer.from(fileData, 'base64').toString('utf-8');
           const decodedContent = this.decodeBase64UrlString(decodedData);
 
-          fs.writeFileSync(savePath, decodedContent);
+          const validatedPath = this.validateSavePath(savePath);
+          fs.writeFileSync(validatedPath, decodedContent);
 
           return {
             messageId,
@@ -906,9 +928,12 @@ export class GmailTools {
     }
 
     try {
-      await this.gmail.users.messages.trash({
+      await this.gmail.users.messages.modify({
         userId,
-        id: messageId
+        id: messageId,
+        requestBody: {
+          removeLabelIds: ['INBOX']
+        }
       });
 
       return [{
@@ -935,9 +960,12 @@ export class GmailTools {
     try {
       const results = await Promise.all(
         messageIds.map(async (messageId: string) => {
-          await this.gmail.users.messages.trash({
+          await this.gmail.users.messages.modify({
             userId,
-            id: messageId
+            id: messageId,
+            requestBody: {
+              removeLabelIds: ['INBOX']
+            }
           });
           return {
             messageId,

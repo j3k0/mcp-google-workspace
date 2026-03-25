@@ -10,9 +10,9 @@ const REDIRECT_URI = 'http://localhost:4100/code';
 const SCOPES = [
   'openid',
   'https://www.googleapis.com/auth/userinfo.email',
-  'https://mail.google.com/',
+  'https://www.googleapis.com/auth/gmail.modify',
   'https://www.googleapis.com/auth/gmail.settings.basic',
-  'https://www.googleapis.com/auth/calendar'
+  'https://www.googleapis.com/auth/calendar.events'
 ];
 
 export interface AccountInfo {
