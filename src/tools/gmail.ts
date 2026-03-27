@@ -205,8 +205,11 @@ export class GmailTools {
               description: 'Email address of the user'
             },
             to: {
-              type: 'string',
-              description: 'Email address of the recipient'
+              oneOf: [
+                { type: 'string' },
+                { type: 'array', items: { type: 'string' } }
+              ],
+              description: 'Email address of the recipient, or list of email addresses'
             },
             subject: {
               type: 'string',
@@ -644,7 +647,7 @@ export class GmailTools {
 
   private async createDraft(args: Record<string, any>): Promise<Array<TextContent>> {
     const userId = args[USER_ID_ARG];
-    const to = args.to;
+    const to = Array.isArray(args.to) ? args.to.join(', ') : args.to;
     const subject = args.subject;
     const body = args.body;
     const cc = args.cc || [];
