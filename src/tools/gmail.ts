@@ -247,7 +247,11 @@ export class GmailTools {
       },
       {
         name: 'gmail_reply',
-        description: `Creates a reply to an existing Gmail email message and either sends it or saves as draft.
+        description: process.env.GMAIL_ALLOW_SENDING === 'true'
+          ? `Creates a reply to an existing Gmail email message and either sends it or saves as draft.
+
+        Use this tool if you want to draft a reply. Use the 'cc' argument if you want to perform a "reply all".`
+          : `Creates a draft reply to an existing Gmail email message. Sending is disabled, only drafts can be created (send must be false).
 
         Use this tool if you want to draft a reply. Use the 'cc' argument if you want to perform a "reply all".`,
         inputSchema: {
@@ -390,7 +394,7 @@ export class GmailTools {
         }
       }
     ] as Tool[]).filter(tool => (
-      (process.env.GMAIL_ALLOW_SENDING === 'true')
+      (process.env.GMAIL_ALLOW_SENDING === 'true' || process.env.GMAIL_ALLOW_DRAFTS === 'true')
       ? true
       : (tool.name !== 'gmail_reply' && tool.name !== 'gmail_create_draft')));
   }
@@ -718,8 +722,7 @@ export class GmailTools {
     const userId = args[USER_ID_ARG];
     const originalMessageId = args.original_message_id;
     const replyBody = args.reply_body;
-    // NEVER SEND EMAILS
-    const send = false; // args.send || false;
+    const send = (process.env.GMAIL_ALLOW_SENDING === 'true') ? (args.send || false) : false;
     const cc = args.cc || [];
 
     if (!userId) {
