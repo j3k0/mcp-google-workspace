@@ -225,6 +225,12 @@ export class GmailTools {
                 type: 'string'
               },
               description: 'Optional list of email addresses to CC'
+            },
+            content_type: {
+              type: 'string',
+              enum: ['text/plain', 'text/html'],
+              description: 'Content type of the email body. Defaults to text/html. Plain text bodies are auto-converted (newlines become <br>).',
+              default: 'text/html'
             }
           },
           required: ['to', 'subject', 'body', USER_ID_ARG]
@@ -283,6 +289,12 @@ export class GmailTools {
                 type: 'string'
               },
               description: 'Optional list of email addresses to CC on the reply'
+            },
+            content_type: {
+              type: 'string',
+              enum: ['text/plain', 'text/html'],
+              description: 'Content type of the email body. Defaults to text/html. Plain text bodies are auto-converted (newlines become <br>).',
+              default: 'text/html'
             }
           },
           required: ['original_message_id', 'reply_body', USER_ID_ARG]
@@ -645,12 +657,25 @@ export class GmailTools {
     }
   }
 
+  private formatEmailBody(body: string, contentType: string): string {
+    if (contentType === 'text/html') {
+      // If the body doesn't contain HTML tags, convert plain text to HTML
+      if (!/<[a-z][\s\S]*>/i.test(body)) {
+        return body.replace(/\r\n/g, '\n').replace(/\n/g, '<br>\n');
+      }
+      return body;
+    }
+    // For text/plain, normalize line endings to CRLF (RFC 2822)
+    return body.replace(/\r\n/g, '\n').replace(/\n/g, '\r\n');
+  }
+
   private async createDraft(args: Record<string, any>): Promise<Array<TextContent>> {
     const userId = args[USER_ID_ARG];
     const to = Array.isArray(args.to) ? args.to.join(', ') : args.to;
     const subject = args.subject;
     const body = args.body;
     const cc = args.cc || [];
+    const contentType = args.content_type || 'text/html';
 
     if (!userId) {
       throw new Error(`Missing required argument: ${USER_ID_ARG}`);
@@ -666,14 +691,15 @@ export class GmailTools {
     }
 
     try {
+      const formattedBody = this.formatEmailBody(body, contentType);
       const message = {
         raw: Buffer.from(
           `To: ${this.sanitizeHeader(to)}\r\n` +
           `Subject: ${this.sanitizeHeader(subject)}\r\n` +
           `Cc: ${cc.map((c: string) => this.sanitizeHeader(c)).join(', ')}\r\n` +
-          `Content-Type: text/plain; charset="UTF-8"\r\n` +
+          `Content-Type: ${contentType}; charset="UTF-8"\r\n` +
           `\r\n` +
-          `${body}`
+          `${formattedBody}`
         ).toString('base64url')
       };
 
@@ -727,6 +753,7 @@ export class GmailTools {
     const replyBody = args.reply_body;
     const send = (process.env.GMAIL_ALLOW_SENDING === 'true') ? (args.send || false) : false;
     const cc = args.cc || [];
+    const contentType = args.content_type || 'text/html';
 
     if (!userId) {
       throw new Error(`Missing required argument: ${USER_ID_ARG}`);
@@ -762,6 +789,7 @@ export class GmailTools {
         throw new Error('Could not extract threadId from original message');
       }
 
+      const formattedReplyBody = this.formatEmailBody(replyBody, contentType);
       const message = {
         raw: Buffer.from(
           `In-Reply-To: ${this.sanitizeHeader(originalMessageId)}\r\n` +
@@ -769,9 +797,9 @@ export class GmailTools {
           `Subject: Re: ${this.sanitizeHeader(headers.subject || '')}\r\n` +
           `To: ${this.sanitizeHeader(headers.from || '')}\r\n` +
           `Cc: ${cc.map((c: string) => this.sanitizeHeader(c)).join(', ')}\r\n` +
-          `Content-Type: text/plain; charset="UTF-8"\r\n` +
+          `Content-Type: ${contentType}; charset="UTF-8"\r\n` +
           `\r\n` +
-          `${replyBody}`
+          `${formattedReplyBody}`
         ).toString('base64url'),
         threadId: threadId
       };
