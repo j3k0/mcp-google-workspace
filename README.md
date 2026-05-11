@@ -236,9 +236,14 @@ On Windows: Edit `%APPDATA%/Claude/claude_desktop_config.json`
    - Support for CC recipients
 
 5. `gmail_delete_draft`
-   - Delete draft emails by ID
+   - Delete draft emails by `draft_id`
+   - Note: `draft_id` is distinct from the message ID returned by `gmail_query_emails`. Use `gmail_list_drafts` to obtain it.
 
-6. `gmail_reply`
+6. `gmail_list_drafts`
+   - List Gmail drafts, optionally filtered by a Gmail search query
+   - Returns each draft's `draft_id` (required for `gmail_delete_draft`) alongside its `message_id`, subject, recipients, and snippet
+
+7. `gmail_reply`
    - Reply to existing emails
    - Option to send immediately or save as draft
    - Support for "Reply All" via CC

@@ -249,6 +249,33 @@ export class GmailTools {
         }
       },
       {
+        name: 'gmail_list_drafts',
+        description: `Lists Gmail drafts for the user. Returns each draft's draft_id (required for gmail_delete_draft) along with its message_id, threadId, subject, recipients, and a snippet.
+
+        Use this tool before calling gmail_delete_draft, since drafts.list returns a distinct draft_id that is different from the message_id returned by gmail_query_emails.`,
+        inputSchema: {
+          type: 'object',
+          properties: {
+            [USER_ID_ARG]: {
+              type: 'string',
+              description: 'Email address of the user'
+            },
+            query: {
+              type: 'string',
+              description: 'Optional Gmail search query to filter drafts (same syntax as gmail_query_emails, e.g. "before:2020/01/01", "to:alice@example.com").'
+            },
+            max_results: {
+              type: 'integer',
+              minimum: 1,
+              maximum: 500,
+              default: 100,
+              description: 'Maximum number of drafts to return (1-500). Defaults to 100.'
+            }
+          },
+          required: [USER_ID_ARG]
+        }
+      },
+      {
         name: 'gmail_reply',
         description: process.env.GMAIL_ALLOW_SENDING === 'true'
           ? `Creates a reply to an existing Gmail email message and either sends it or saves as draft.
@@ -416,6 +443,8 @@ export class GmailTools {
         return this.createDraft(args);
       case 'gmail_delete_draft':
         return this.deleteDraft(args);
+      case 'gmail_list_drafts':
+        return this.listDrafts(args);
       case 'gmail_reply':
         return this.reply(args);
       case 'gmail_get_attachment':
@@ -690,6 +719,57 @@ export class GmailTools {
       }];
     } catch (error) {
       console.error('Error creating draft:', error);
+      throw error;
+    }
+  }
+
+  private async listDrafts(args: Record<string, any>): Promise<Array<TextContent>> {
+    const userId = args[USER_ID_ARG];
+    if (!userId) {
+      throw new Error(`Missing required argument: ${USER_ID_ARG}`);
+    }
+
+    try {
+      const response = await this.gmail.users.drafts.list({
+        userId,
+        q: args.query,
+        maxResults: args.max_results || 100
+      });
+
+      const drafts = response.data.drafts || [];
+      const enriched = await Promise.all(
+        drafts.map(async (d) => {
+          const messageId = d.message?.id;
+          if (!messageId) {
+            return { draft_id: d.id, message_id: null };
+          }
+          const msg = await this.gmail.users.messages.get({
+            userId,
+            id: messageId,
+            format: 'metadata',
+            metadataHeaders: ['From', 'To', 'Cc', 'Subject', 'Date']
+          });
+          const headers: Record<string, string> = {};
+          msg.data.payload?.headers?.forEach(h => {
+            if (h.name && h.value) headers[h.name.toLowerCase()] = h.value;
+          });
+          return {
+            draft_id: d.id,
+            message_id: messageId,
+            threadId: msg.data.threadId,
+            internalDate: msg.data.internalDate,
+            snippet: msg.data.snippet,
+            headers
+          };
+        })
+      );
+
+      return [{
+        type: 'text',
+        text: JSON.stringify(enriched, null, 2)
+      }];
+    } catch (error) {
+      console.error('Error listing drafts:', error);
       throw error;
     }
   }
