@@ -6,7 +6,7 @@ import { Buffer } from 'buffer';
 import fs from 'fs';
 import * as path from 'path';
 
-function decodeBase64Data(fileData: string): Buffer {
+export function decodeBase64Data(fileData: string): Buffer {
   const standardBase64Data = fileData.replace(/-/g, '+').replace(/_/g, '/');
   const padding = '='.repeat((4 - standardBase64Data.length % 4) % 4);
   return Buffer.from(standardBase64Data + padding, 'base64');
@@ -22,17 +22,11 @@ export class GmailTools {
   // Helper methods for email content extraction
   private decodeBase64UrlString(base64UrlString: string): string {
     try {
-      return this.decodeBase64UrlToBuffer(base64UrlString).toString('utf-8');
+      return decodeBase64Data(base64UrlString).toString('utf-8');
     } catch (error) {
       console.error('Error decoding base64 string:', error);
       return '[Error decoding content]';
     }
-  }
-
-  private decodeBase64UrlToBuffer(base64UrlString: string): Buffer {
-    const base64String = base64UrlString.replace(/-/g, '+').replace(/_/g, '/');
-    const padding = '='.repeat((4 - base64String.length % 4) % 4);
-    return Buffer.from(base64String + padding, 'base64');
   }
 
   /**
@@ -845,7 +839,7 @@ export class GmailTools {
         throw new Error('Attachment data not found');
       }
 
-      const decodedBuffer = this.decodeBase64UrlToBuffer(attachmentData);
+      const decodedBuffer = decodeBase64Data(attachmentData);
 
       if (saveToDisk) {
         const validatedPath = this.validateSavePath(saveToDisk);
@@ -899,7 +893,7 @@ export class GmailTools {
             throw new Error('Attachment data not found');
           }
 
-          const decodedBuffer = this.decodeBase64UrlToBuffer(fileData);
+          const decodedBuffer = decodeBase64Data(fileData);
 
           const validatedPath = this.validateSavePath(savePath);
           fs.writeFileSync(validatedPath, decodedBuffer);

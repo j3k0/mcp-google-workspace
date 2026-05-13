@@ -35,6 +35,7 @@
     "build": "tsc",
     "start": "node --loader ts-node/esm src/server.ts",
     "dev": "node --loader ts-node/esm src/server.ts",
-    "authenticate": "node --loader ts-node/esm src/authenticate.ts"
+    "authenticate": "node --loader ts-node/esm src/authenticate.ts",
+    "test": "npm run build && node --test 'dist/tools/__tests__/**/*.test.js'"
   }
 }
