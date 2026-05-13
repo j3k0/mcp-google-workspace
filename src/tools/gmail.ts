@@ -4,9 +4,9 @@ import { google } from 'googleapis';
 import { USER_ID_ARG } from '../types/tool-handler.js';
 import { Buffer } from 'buffer';
 import fs from 'fs';
-import { decodeBase64Data, resolveAttachmentPath } from './gmail-helpers.js';
+import { decodeBase64Data, formatDraftEntry, resolveAttachmentPath } from './gmail-helpers.js';
 
-export { decodeBase64Data, resolveAttachmentPath } from './gmail-helpers.js';
+export { decodeBase64Data, formatDraftEntry, resolveAttachmentPath } from './gmail-helpers.js';
 
 export class GmailTools {
   private gmail: ReturnType<typeof google.gmail>;
@@ -722,32 +722,31 @@ export class GmailTools {
       });
 
       const drafts = response.data.drafts || [];
-      const enriched = await Promise.all(
+      const settled = await Promise.allSettled(
         drafts.map(async (d) => {
           const messageId = d.message?.id;
-          if (!messageId) {
-            return { draft_id: d.id, message_id: null };
-          }
+          if (!messageId) return null;
           const msg = await this.gmail.users.messages.get({
             userId,
             id: messageId,
             format: 'metadata',
             metadataHeaders: ['From', 'To', 'Cc', 'Subject', 'Date']
           });
-          const headers: Record<string, string> = {};
-          msg.data.payload?.headers?.forEach(h => {
-            if (h.name && h.value) headers[h.name.toLowerCase()] = h.value;
-          });
-          return {
-            draft_id: d.id,
-            message_id: messageId,
-            threadId: msg.data.threadId,
-            internalDate: msg.data.internalDate,
-            snippet: msg.data.snippet,
-            headers
-          };
+          return msg.data;
         })
       );
+
+      const enriched = settled.map((result, i) => {
+        const draftId = drafts[i].id ?? '';
+        if (result.status === 'fulfilled') {
+          return formatDraftEntry(draftId, result.value);
+        }
+        return {
+          draft_id: draftId,
+          message_id: drafts[i].message?.id ?? null,
+          error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+        };
+      });
 
       return [{
         type: 'text',
