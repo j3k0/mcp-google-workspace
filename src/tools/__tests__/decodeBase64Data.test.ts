@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Buffer } from 'buffer';
-import { decodeBase64Data } from '../gmail.js';
+import { decodeBase64Data } from '../gmail-helpers.js';
 
 test('decodes standard base64 ASCII payload', () => {
   const input = Buffer.from('Hello, world!', 'utf-8').toString('base64');

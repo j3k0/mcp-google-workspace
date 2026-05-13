@@ -207,6 +207,12 @@ On Windows: Edit `%APPDATA%/Claude/claude_desktop_config.json`
    - Listen on port 4100 for the OAuth2 callback
    - Store the credentials for future use in a file named `.oauth2.{email}.json`
 
+### Environment Variables
+
+- `GMAIL_ALLOW_SENDING` — set to `true` to allow `gmail_send` to actually send mail. Defaults to disabled.
+- `GMAIL_ALLOW_DRAFTS` — set to `true` to allow draft creation tools. Defaults to disabled.
+- `GMAIL_ATTACHMENTS_DIR` — base directory under which `gmail_get_attachment` and `gmail_bulk_save_attachments` may write files. Attachment paths supplied by the caller are treated as relative to this directory; absolute paths, traversal, and symlinks that escape the directory are rejected. Defaults to `~/.mcp-gsuite/attachments`.
+
 ## Available Tools
 
 ### Account Management
