@@ -4,13 +4,9 @@ import { google } from 'googleapis';
 import { USER_ID_ARG } from '../types/tool-handler.js';
 import { Buffer } from 'buffer';
 import fs from 'fs';
-import * as path from 'path';
+import { decodeBase64Data, resolveAttachmentPath } from './gmail-helpers.js';
 
-export function decodeBase64Data(fileData: string): Buffer {
-  const standardBase64Data = fileData.replace(/-/g, '+').replace(/_/g, '/');
-  const padding = '='.repeat((4 - standardBase64Data.length % 4) % 4);
-  return Buffer.from(standardBase64Data + padding, 'base64');
-}
+export { decodeBase64Data, resolveAttachmentPath } from './gmail-helpers.js';
 
 export class GmailTools {
   private gmail: ReturnType<typeof google.gmail>;
@@ -36,16 +32,8 @@ export class GmailTools {
     return value.replace(/[\r\n]/g, '');
   }
 
-  /**
-   * Validates that a save path does not escape its parent directory via traversal.
-   */
   private validateSavePath(filePath: string): string {
-    const resolved = path.resolve(filePath);
-    const dir = path.resolve(path.dirname(filePath));
-    if (resolved.includes('..') || dir.includes('..')) {
-      throw new Error(`Path traversal detected: ${filePath}`);
-    }
-    return resolved;
+    return resolveAttachmentPath(filePath);
   }
 
   private extractEmailText(payload: any): string {
@@ -313,7 +301,7 @@ export class GmailTools {
             },
             save_to_disk: {
               type: 'string',
-              description: 'The fullpath to save the attachment to disk. If not provided, the attachment is returned as a resource.'
+              description: 'Relative path (under GMAIL_ATTACHMENTS_DIR, default ~/.mcp-gsuite/attachments) where the attachment is written. Absolute paths and traversal (e.g. "../") are rejected. If not provided, the attachment is returned as a resource.'
             }
           },
           required: ['message_id', 'attachment_id', 'mime_type', 'filename', USER_ID_ARG]
@@ -344,7 +332,7 @@ export class GmailTools {
                   },
                   save_path: {
                     type: 'string',
-                    description: 'Path where the attachment should be saved'
+                    description: 'Relative path (under GMAIL_ATTACHMENTS_DIR, default ~/.mcp-gsuite/attachments) where the attachment is written. Absolute paths and traversal (e.g. "../") are rejected.'
                   }
                 },
                 required: ['message_id', 'part_id', 'save_path']
