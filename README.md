@@ -188,6 +188,24 @@ On Windows: Edit `%APPDATA%/Claude/claude_desktop_config.json`
 ```
 </details>
 
+### Docker
+
+You can also build and run the MCP server in Docker:
+
+```bash
+docker build -t mcp-google-workspace .
+docker run --rm -i \
+  -v "$PWD/.gauth.json:/app/.gauth.json:ro" \
+  -v "$PWD/.accounts.json:/app/.accounts.json:ro" \
+  -v "$PWD/.credentials:/app/.credentials" \
+  -e GMAIL_ALLOW_DRAFTS=true \
+  -e GMAIL_ATTACHMENTS_DIR=/app/attachments \
+  mcp-google-workspace \
+  node dist/server.js --credentials-dir /app/.credentials
+```
+
+Do not bake `.gauth.json`, `.accounts.json`, OAuth tokens, or `.env` files into the image. The included `.dockerignore` excludes those files; mount them at runtime instead.
+
 ## Usage
 
 1. Start the server:
