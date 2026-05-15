@@ -4,9 +4,9 @@ import { google } from 'googleapis';
 import { USER_ID_ARG } from '../types/tool-handler.js';
 import { Buffer } from 'buffer';
 import fs from 'fs';
-import { decodeBase64Data, formatDraftEntry, resolveAttachmentPath } from './gmail-helpers.js';
+import { decodeBase64Data, formatDraftEntry, renderEmailBody, resolveAttachmentPath } from './gmail-helpers.js';
 
-export { decodeBase64Data, formatDraftEntry, resolveAttachmentPath } from './gmail-helpers.js';
+export { decodeBase64Data, formatDraftEntry, renderEmailBody, resolveAttachmentPath } from './gmail-helpers.js';
 
 export class GmailTools {
   private gmail: ReturnType<typeof google.gmail>;
@@ -210,6 +210,12 @@ export class GmailTools {
                 type: 'string'
               },
               description: 'Optional list of email addresses to CC'
+            },
+            body_type: {
+              type: 'string',
+              enum: ['plain', 'html', 'markdown'],
+              default: 'plain',
+              description: 'How to interpret `body`. "plain" sends as text/plain (default, current behavior). "html" sends the body verbatim as text/html. "markdown" renders the body to HTML and sends as text/html.'
             }
           },
           required: ['to', 'subject', 'body', USER_ID_ARG]
@@ -295,6 +301,12 @@ export class GmailTools {
                 type: 'string'
               },
               description: 'Optional list of email addresses to CC on the reply'
+            },
+            body_type: {
+              type: 'string',
+              enum: ['plain', 'html', 'markdown'],
+              default: 'plain',
+              description: 'How to interpret `reply_body`. "plain" sends as text/plain (default, current behavior). "html" sends the body verbatim as text/html. "markdown" renders the body to HTML and sends as text/html.'
             }
           },
           required: ['original_message_id', 'reply_body', USER_ID_ARG]
@@ -680,14 +692,15 @@ export class GmailTools {
     }
 
     try {
+      const rendered = renderEmailBody(body, args.body_type);
       const message = {
         raw: Buffer.from(
           `To: ${this.sanitizeHeader(to)}\r\n` +
           `Subject: ${this.sanitizeHeader(subject)}\r\n` +
           `Cc: ${cc.map((c: string) => this.sanitizeHeader(c)).join(', ')}\r\n` +
-          `Content-Type: text/plain; charset="UTF-8"\r\n` +
+          `Content-Type: ${rendered.contentType}; charset="UTF-8"\r\n` +
           `\r\n` +
-          `${body}`
+          `${rendered.body}`
         ).toString('base64url')
       };
 
@@ -826,6 +839,7 @@ export class GmailTools {
         throw new Error('Could not extract threadId from original message');
       }
 
+      const rendered = renderEmailBody(replyBody, args.body_type);
       const message = {
         raw: Buffer.from(
           `In-Reply-To: ${this.sanitizeHeader(originalMessageId)}\r\n` +
@@ -833,9 +847,9 @@ export class GmailTools {
           `Subject: Re: ${this.sanitizeHeader(headers.subject || '')}\r\n` +
           `To: ${this.sanitizeHeader(headers.from || '')}\r\n` +
           `Cc: ${cc.map((c: string) => this.sanitizeHeader(c)).join(', ')}\r\n` +
-          `Content-Type: text/plain; charset="UTF-8"\r\n` +
+          `Content-Type: ${rendered.contentType}; charset="UTF-8"\r\n` +
           `\r\n` +
-          `${replyBody}`
+          `${rendered.body}`
         ).toString('base64url'),
         threadId: threadId
       };

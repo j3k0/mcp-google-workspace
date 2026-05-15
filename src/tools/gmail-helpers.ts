@@ -2,6 +2,7 @@ import { Buffer } from 'buffer';
 import fs from 'fs';
 import os from 'os';
 import * as path from 'path';
+import { marked } from 'marked';
 
 export function decodeBase64Data(fileData: string): Buffer {
   const standardBase64Data = fileData.replace(/-/g, '+').replace(/_/g, '/');
@@ -70,6 +71,32 @@ export interface DraftEntry {
   internalDate?: string | null;
   snippet?: string | null;
   headers?: Record<string, string>;
+}
+
+export type EmailBodyType = 'plain' | 'html' | 'markdown';
+
+export interface RenderedEmailBody {
+  contentType: 'text/plain' | 'text/html';
+  body: string;
+}
+
+/**
+ * Renders the agent-supplied body into the MIME body + Content-Type the
+ * Gmail API should see. 'plain' is passthrough (current behavior),
+ * 'html' is passthrough as text/html, 'markdown' is rendered to HTML
+ * via marked. Defaults to 'plain' when the input is omitted/unknown so
+ * existing callers see no behavior change.
+ */
+export function renderEmailBody(body: string, bodyType: EmailBodyType | string | undefined): RenderedEmailBody {
+  switch (bodyType) {
+    case 'html':
+      return { contentType: 'text/html', body };
+    case 'markdown':
+      return { contentType: 'text/html', body: marked.parse(body, { async: false }) as string };
+    case 'plain':
+    default:
+      return { contentType: 'text/plain', body };
+  }
 }
 
 /**
