@@ -9,10 +9,11 @@ import { decodeBase64Data, formatDraftEntry, renderEmailBody, resolveAttachmentP
 export { decodeBase64Data, formatDraftEntry, renderEmailBody, resolveAttachmentPath } from './gmail-helpers.js';
 
 export class GmailTools {
-  private gmail: ReturnType<typeof google.gmail>;
+  constructor(private gauth: GAuthService) {}
 
-  constructor(private gauth: GAuthService) {
-    this.gmail = google.gmail({ version: 'v1', auth: this.gauth.getClient() });
+  private getGmailClient(userId: string) {
+    const client = this.gauth.getClientForUser(userId);
+    return google.gmail({ version: 'v1', auth: client });
   }
 
   // Helper methods for email content extraction
@@ -503,8 +504,10 @@ export class GmailTools {
       throw new Error(`Missing required argument: ${USER_ID_ARG}`);
     }
 
+    const gmail = this.getGmailClient(userId);
+
     try {
-      const response = await this.gmail.users.messages.list({
+      const response = await gmail.users.messages.list({
         userId,
         q: args.query,
         maxResults: args.max_results || 100
@@ -513,7 +516,7 @@ export class GmailTools {
       const messages = response.data.messages || [];
       const emails = await Promise.all(
         messages.map(async (msg) => {
-          const email = await this.gmail.users.messages.get({
+          const email = await gmail.users.messages.get({
             userId,
             id: msg.id!,
             format: 'metadata',
@@ -560,8 +563,10 @@ export class GmailTools {
       throw new Error('Missing required argument: email_id');
     }
 
+    const gmail = this.getGmailClient(userId);
+
     try {
-      const email = await this.gmail.users.messages.get({
+      const email = await gmail.users.messages.get({
         userId,
         id: emailId,
         format: 'full'
@@ -619,10 +624,12 @@ export class GmailTools {
       throw new Error('Missing required argument: email_ids');
     }
 
+    const gmail = this.getGmailClient(userId);
+
     try {
       const emails = await Promise.all(
         emailIds.map(async (emailId: string) => {
-          const email = await this.gmail.users.messages.get({
+          const email = await gmail.users.messages.get({
             userId,
             id: emailId,
             format: 'full'
@@ -691,6 +698,8 @@ export class GmailTools {
       throw new Error('Missing required argument: body');
     }
 
+    const gmail = this.getGmailClient(userId);
+
     try {
       const rendered = renderEmailBody(body, args.body_type);
       const message = {
@@ -704,7 +713,7 @@ export class GmailTools {
         ).toString('base64url')
       };
 
-      const draft = await this.gmail.users.drafts.create({
+      const draft = await gmail.users.drafts.create({
         userId,
         requestBody: {
           message
@@ -727,8 +736,10 @@ export class GmailTools {
       throw new Error(`Missing required argument: ${USER_ID_ARG}`);
     }
 
+    const gmail = this.getGmailClient(userId);
+
     try {
-      const response = await this.gmail.users.drafts.list({
+      const response = await gmail.users.drafts.list({
         userId,
         q: args.query,
         maxResults: args.max_results || 100
@@ -739,7 +750,7 @@ export class GmailTools {
         drafts.map(async (d) => {
           const messageId = d.message?.id;
           if (!messageId) return null;
-          const msg = await this.gmail.users.messages.get({
+          const msg = await gmail.users.messages.get({
             userId,
             id: messageId,
             format: 'metadata',
@@ -782,8 +793,10 @@ export class GmailTools {
       throw new Error('Missing required argument: draft_id');
     }
 
+    const gmail = this.getGmailClient(userId);
+
     try {
-      await this.gmail.users.drafts.delete({
+      await gmail.users.drafts.delete({
         userId,
         id: draftId
       });
@@ -815,9 +828,11 @@ export class GmailTools {
       throw new Error('Missing required argument: reply_body');
     }
 
+    const gmail = this.getGmailClient(userId);
+
     try {
       // First get the original message to extract headers
-      const originalMessage = await this.gmail.users.messages.get({
+      const originalMessage = await gmail.users.messages.get({
         userId,
         id: originalMessageId
       });
@@ -855,7 +870,7 @@ export class GmailTools {
       };
 
       if (send) {
-        await this.gmail.users.messages.send({
+        await gmail.users.messages.send({
           userId,
           requestBody: {
             raw: message.raw,
@@ -867,7 +882,7 @@ export class GmailTools {
           text: 'Reply sent successfully'
         }];
       } else {
-        const draft = await this.gmail.users.drafts.create({
+        const draft = await gmail.users.drafts.create({
           userId,
           requestBody: {
             message
@@ -908,8 +923,10 @@ export class GmailTools {
       throw new Error('Missing required argument: filename');
     }
 
+    const gmail = this.getGmailClient(userId);
+
     try {
-      const attachment = await this.gmail.users.messages.attachments.get({
+      const attachment = await gmail.users.messages.attachments.get({
         userId,
         messageId,
         id: attachmentId
@@ -952,6 +969,8 @@ export class GmailTools {
       throw new Error('Missing required argument: attachments');
     }
 
+    const gmail = this.getGmailClient(userId);
+
     try {
       const results = await Promise.all(
         attachments.map(async (attachmentInfo: any) => {
@@ -963,7 +982,7 @@ export class GmailTools {
             throw new Error('Missing required arguments: message_id, part_id, or save_path');
           }
 
-          const attachmentData = await this.gmail.users.messages.attachments.get({
+          const attachmentData = await gmail.users.messages.attachments.get({
             userId,
             messageId,
             id: partId
@@ -1009,8 +1028,10 @@ export class GmailTools {
       throw new Error('Missing required argument: message_id');
     }
 
+    const gmail = this.getGmailClient(userId);
+
     try {
-      await this.gmail.users.messages.modify({
+      await gmail.users.messages.modify({
         userId,
         id: messageId,
         requestBody: {
@@ -1039,10 +1060,12 @@ export class GmailTools {
       throw new Error('Missing required argument: message_ids');
     }
 
+    const gmail = this.getGmailClient(userId);
+
     try {
       const results = await Promise.all(
         messageIds.map(async (messageId: string) => {
-          await this.gmail.users.messages.modify({
+          await gmail.users.messages.modify({
             userId,
             id: messageId,
             requestBody: {

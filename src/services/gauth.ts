@@ -53,6 +53,9 @@ export class NoUserIdError extends Error {}
 
 export class GAuthService {
   private oauth2Client?: OAuth2Client;
+  private clientCache: Map<string, OAuth2Client> = new Map();
+  private clientId?: string;
+  private clientSecret?: string;
   private config: ServerConfig;
 
   constructor(config: ServerConfig) {
@@ -73,9 +76,11 @@ export class GAuthService {
         throw new Error('Invalid OAuth2 credentials format in gauth file');
       }
 
+      this.clientId = credentials.installed.client_id;
+      this.clientSecret = credentials.installed.client_secret;
       this.oauth2Client = new google.auth.OAuth2(
-        credentials.installed.client_id,
-        credentials.installed.client_secret,
+        this.clientId,
+        this.clientSecret,
         REDIRECT_URI
       );
     } catch (error) {
@@ -88,6 +93,27 @@ export class GAuthService {
       throw new Error('OAuth2 client not initialized. Call initialize() first.');
     }
     return this.oauth2Client;
+  }
+
+  // Per-account OAuth2Client. Falls back to the shared client only if no
+  // per-user client has been cached yet — callers should pair this with
+  // a prior getStoredCredentials(userId) call so the cache is populated.
+  getClientForUser(userId: string): OAuth2Client {
+    const client = this.clientCache.get(userId);
+    if (client) {
+      return client;
+    }
+    return this.getClient();
+  }
+
+  private createClientForUser(credentials: Credentials): OAuth2Client {
+    const client = new OAuth2Client(
+      this.clientId,
+      this.clientSecret,
+      REDIRECT_URI
+    );
+    client.setCredentials(credentials);
+    return client;
   }
 
   private getCredentialFilename(userId: string): string {
@@ -125,12 +151,18 @@ export class GAuthService {
       return null;
     }
 
+    const cached = this.clientCache.get(userId);
+    if (cached) {
+      return cached;
+    }
+
     try {
       const credFilePath = this.getCredentialFilename(userId);
       const data = await fs.readFile(credFilePath, 'utf8');
       const credentials = JSON.parse(data);
-      this.oauth2Client.setCredentials(credentials);
-      return this.oauth2Client;
+      const client = this.createClientForUser(credentials);
+      this.clientCache.set(userId, client);
+      return client;
     } catch (error) {
       console.warn(`No stored OAuth2 credentials yet for user: ${userId}`);
       return null;
@@ -181,7 +213,9 @@ export class GAuthService {
       access_type: 'offline',
       scope: SCOPES,
       state: JSON.stringify(state),
-      prompt: 'consent',
+      // Force the account picker so the user can't accidentally consent
+      // as the browser's default Google account when authenticating a different one.
+      prompt: 'select_account consent',
       login_hint: emailAddress
     });
   }
@@ -195,6 +229,8 @@ export class GAuthService {
 
       if (credentials.credentials.refresh_token) {
         await this.storeCredentials(credentials, emailAddress);
+        const client = this.createClientForUser(credentials.credentials);
+        this.clientCache.set(emailAddress, client);
         return credentials;
       } else {
         const storedCredentials = await this.getStoredCredentials(emailAddress);
