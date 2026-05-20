@@ -13,4 +13,14 @@ then
   npm run build > /dev/null 2>&1
 fi
 
+# Node 22+ removed `SlowBuffer`, which `buffer-equal-constant-time@1.0.1`
+# (a transitive dep of `jwa` via `google-auth-library`) reads at module load.
+# Upstream package hasn't been updated since 2014; patch it in place each launch
+# so the patch survives `npm install`.
+BECT=node_modules/buffer-equal-constant-time/index.js
+if [ -f "$BECT" ] && grep -qF "require('buffer').SlowBuffer;" "$BECT"; then
+  # Use '#' as delimiter so the '||' in the replacement isn't mis-parsed as a delimiter (BSD sed).
+  sed -i.bak "s#require('buffer').SlowBuffer;#require('buffer').SlowBuffer || require('buffer').Buffer;#" "$BECT"
+fi
+
 node dist/server.js
