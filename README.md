@@ -272,16 +272,29 @@ Do not bake `.gauth.json`, `.accounts.json`, OAuth tokens, or `.env` files into 
    - Option to send immediately or save as draft
    - Support for "Reply All" via CC
 
-7. `gmail_get_attachment`
-   - Download email attachments
-   - Save to disk or return as embedded resource
+8. `gmail_get_attachment`
+   - Download a single email attachment by `message_id` + `attachment_id`
+   - `attachment_id` must be the `attachmentId` string from `gmail_get_email` / `gmail_bulk_get_emails` — not the numeric part-index key (e.g. `"1"`) that those tools use to key the `attachments` map
+   - Save to disk (`save_to_disk`) or return as embedded resource. Save paths are sandboxed — see `GMAIL_ATTACHMENTS_DIR` above.
 
-8. `gmail_bulk_save_attachments`
+9. `gmail_bulk_save_attachments`
    - Save multiple attachments in a single operation
+   - Same `attachment_id` requirement as `gmail_get_attachment` (see above) — each item in `attachments` needs `message_id`, `attachment_id`, `save_path`
 
-9. `gmail_archive` / `gmail_bulk_archive`
-   - Move emails out of inbox
-   - Support for individual or bulk operations
+10. `gmail_archive` / `gmail_bulk_archive`
+    - Move emails out of inbox by removing the `INBOX` label (does **not** trash them)
+    - `gmail_bulk_archive` issues one API call per message; for large batches prefer `gmail_bulk_modify` with `remove_labels: ["INBOX"]`, which uses `batchModify`
+
+11. `gmail_list_labels`
+    - Lists Gmail labels (id, name, type) for the account
+    - Use this to find the label `id` for any user-defined label before passing it to `gmail_bulk_modify` — user labels must be referenced by id, not by their display name
+
+12. `gmail_bulk_modify`
+    - Adds and/or removes labels on many messages via a single `batchModify` request (up to 1000 message IDs per underlying request; longer lists are chunked automatically)
+    - Takes label **IDs**, not names. Common system IDs: `TRASH`, `INBOX`, `UNREAD`, `STARRED`, `IMPORTANT`, `SPAM`
+    - Examples: trash → `add_labels: ["TRASH"]`; archive → `remove_labels: ["INBOX"]`; mark read → `remove_labels: ["UNREAD"]`
+
+> **Sending and drafting are disabled by default.** `gmail_create_draft` and `gmail_reply` are only registered as tools when `GMAIL_ALLOW_SENDING=true` or `GMAIL_ALLOW_DRAFTS=true` is set. Without either, the server doesn't expose them at all. `GMAIL_ALLOW_DRAFTS` unlocks the tools in draft-only mode — `gmail_reply` still can't actually send (`send` is forced `false`) unless `GMAIL_ALLOW_SENDING=true` specifically. This is intentional, so an AI assistant can't send, or even draft, email on your behalf unless you've explicitly opted in.
 
 ### Calendar Tools
 
@@ -301,9 +314,46 @@ Do not bake `.gauth.json`, `.accounts.json`, OAuth tokens, or `.env` files into 
    - Location and description fields
    - Timezone handling
 
-4. `calendar_delete_event`
+4. `calendar_update_event`
+   - Update an existing event by `event_id`; only the fields you pass are changed (partial update via `events.patch`)
+   - `attendees` replaces the entire attendee list; `add_attendees` appends to the existing list instead, de-duplicating against current attendees
+   - `send_notifications` (default `true`) controls whether attendees get an update email
+
+5. `calendar_delete_event`
    - Delete events by ID
    - Option for cancellation notifications
+
+## How the API calls work
+
+### IDs: use the value the API gave you, not an index
+
+Several tools accept an ID that must come verbatim from a prior tool's output — passing a derived value (like an array index or map key) fails with an opaque error instead of a helpful one:
+
+- `gmail_get_attachment` / `gmail_bulk_save_attachments` need the `attachmentId` string found inside the `attachments` map returned by `gmail_get_email` / `gmail_bulk_get_emails`. That map is keyed by a small numeric string (e.g. `"1"`) for the MIME part index — that key is *not* the attachment ID and will fail with `Invalid attachment token`.
+- Save paths for those same two tools are relative to `GMAIL_ATTACHMENTS_DIR` (default `~/.mcp-gsuite/attachments`) — absolute paths, `..` traversal, and symlinks that escape the directory are all rejected rather than silently written to.
+- `gmail_bulk_modify` needs label **IDs**. System labels (`INBOX`, `UNREAD`, `STARRED`, `TRASH`, `SPAM`, `IMPORTANT`) double as their own IDs, but user-created labels don't — call `gmail_list_labels` first and use the `id` field, not the label's display name.
+- `calendar_update_event` / `calendar_delete_event` need the `event_id` from `calendar_get_events`, not the event's summary/title.
+
+### Multi-account routing
+
+Every tool (except the `*_list_accounts` tools) takes a `user_id` argument — the email address of one of the accounts configured in `.accounts.json`. There's no session-level "current account"; each call is routed independently, so batch operations across accounts require separate calls per account.
+
+### Batch size and request shape
+
+- `gmail_bulk_get_emails` / `gmail_bulk_save_attachments` fan out to one Gmail API call per item — no server-side batch endpoint for reads/attachment fetches.
+- `gmail_bulk_archive` also issues one `messages.modify` call per message ID.
+- `gmail_bulk_modify` is the one truly batched write path: it calls `users.messages.batchModify`, which accepts up to 1000 message IDs per request. Longer lists are automatically split into multiple sequential batch requests — there's no need to chunk them yourself.
+- Archiving (`gmail_archive`, `gmail_bulk_archive`, or `gmail_bulk_modify` with `remove_labels: ["INBOX"]`) only removes the `INBOX` label. It never adds `TRASH` — archived mail stays in "All Mail," it isn't deleted.
+
+### Auth and account config
+
+- Each account authenticates independently via OAuth2 (see Configuration below); credentials are cached to `.oauth2.{email}.json` under `--credentials-dir` after the first browser-based auth for that account.
+- `gmail_reply` and `gmail_create_draft` are filtered out of the tool list entirely unless `GMAIL_ALLOW_SENDING=true` or `GMAIL_ALLOW_DRAFTS=true` is set — the server won't even advertise those tools otherwise. `GMAIL_ALLOW_DRAFTS` alone still can't send: `gmail_reply`'s `send` argument is forced to `false` unless `GMAIL_ALLOW_SENDING=true` specifically.
+- `To`/`Subject`/`Cc`/`In-Reply-To` values passed into `gmail_create_draft`/`gmail_reply` are stripped of `\r`/`\n` before being written into raw RFC822 headers, so a crafted recipient or subject can't inject extra headers (e.g. a hidden `Bcc`).
+
+### Picking up schema changes
+
+`dist/` is gitignored and rebuilt from `src/` via `npm run build`. If you're running this server from an MCP client (Claude Code, Claude Desktop, etc.), rebuilding alone isn't enough — the client caches the tool schemas from when it first connected. Reconnect the MCP server (in Claude Code: `/mcp`, then reconnect `gworkspace`/`mcp-google-workspace`) or restart the client session to pick up schema or behavior changes.
 
 ## Development
 

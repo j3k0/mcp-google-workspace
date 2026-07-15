@@ -365,16 +365,16 @@ export class GmailTools {
                     type: 'string',
                     description: 'ID of the Gmail message containing the attachment'
                   },
-                  part_id: {
+                  attachment_id: {
                     type: 'string',
-                    description: 'ID of the part containing the attachment'
+                    description: 'The attachmentId of the attachment, as returned in the attachments map by gmail_get_email / gmail_bulk_get_emails (not the numeric part-index key of that map)'
                   },
                   save_path: {
                     type: 'string',
                     description: 'Relative path (under GMAIL_ATTACHMENTS_DIR, default ~/.mcp-gsuite/attachments) where the attachment is written. Absolute paths and traversal (e.g. "../") are rejected.'
                   }
                 },
-                required: ['message_id', 'part_id', 'save_path']
+                required: ['message_id', 'attachment_id', 'save_path']
               }
             }
           },
@@ -419,6 +419,65 @@ export class GmailTools {
           },
           required: ['message_ids', USER_ID_ARG]
         }
+      },
+      {
+        name: 'gmail_list_labels',
+        description: 'Lists the Gmail labels in the account, returning each label\'s id, name, and type (system or user). Use this to discover the label IDs needed by gmail_bulk_modify (user-defined labels must be referenced by id, not name).',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            [USER_ID_ARG]: {
+              type: 'string',
+              description: 'Email address of the user'
+            }
+          },
+          required: [USER_ID_ARG]
+        }
+      },
+      {
+        name: 'gmail_bulk_modify',
+        description: `Adds and/or removes labels on many Gmail messages in a SINGLE batch request (Gmail users.messages.batchModify), up to 1000 message IDs per request. Lists longer than 1000 are automatically split into multiple batch requests. This is the efficient way to bulk-trash, bulk-archive, or relabel — unlike gmail_bulk_archive it does not issue one request per message.
+
+        Use label IDs (not names). Common system label IDs: 'TRASH' (move to trash), 'INBOX' (present = in inbox; remove it to archive, add it to move back to inbox), 'UNREAD', 'STARRED', 'IMPORTANT', 'SPAM'. Get user-defined label IDs from gmail_list_labels.
+
+        Examples:
+        - Move to trash: add_labels: ["TRASH"]
+        - Archive (remove from inbox): remove_labels: ["INBOX"]
+        - Mark read: remove_labels: ["UNREAD"]
+        - Apply a user label and archive: add_labels: ["Label_123"], remove_labels: ["INBOX"]
+
+        Provide at least one of add_labels or remove_labels.`,
+        inputSchema: {
+          type: 'object',
+          properties: {
+            [USER_ID_ARG]: {
+              type: 'string',
+              description: 'Email address of the user'
+            },
+            message_ids: {
+              type: 'array',
+              items: {
+                type: 'string'
+              },
+              description: 'List of Gmail message IDs to modify (max 1000 per underlying request; longer lists are split automatically).'
+            },
+            add_labels: {
+              type: 'array',
+              items: {
+                type: 'string'
+              },
+              description: 'Label IDs to add to every message (optional). E.g. ["TRASH"] or a user label id from gmail_list_labels.'
+            },
+            remove_labels: {
+              type: 'array',
+              items: {
+                type: 'string'
+              },
+              description: 'Label IDs to remove from every message (optional). E.g. ["INBOX"] to archive, ["UNREAD"] to mark read.'
+            }
+          },
+          required: ['message_ids', USER_ID_ARG]
+        }
       }
     ] as Tool[]).filter(tool => (
       (process.env.GMAIL_ALLOW_SENDING === 'true' || process.env.GMAIL_ALLOW_DRAFTS === 'true')
@@ -452,6 +511,10 @@ export class GmailTools {
         return this.archive(args);
       case 'gmail_bulk_archive':
         return this.bulkArchive(args);
+      case 'gmail_list_labels':
+        return this.listLabels(args);
+      case 'gmail_bulk_modify':
+        return this.bulkModify(args);
       // Add other tool handlers here...
       default:
         throw new Error(`Unknown tool: ${name}`);
@@ -956,17 +1019,17 @@ export class GmailTools {
       const results = await Promise.all(
         attachments.map(async (attachmentInfo: any) => {
           const messageId = attachmentInfo.message_id;
-          const partId = attachmentInfo.part_id;
+          const attachmentId = attachmentInfo.attachment_id;
           const savePath = attachmentInfo.save_path;
 
-          if (!messageId || !partId || !savePath) {
-            throw new Error('Missing required arguments: message_id, part_id, or save_path');
+          if (!messageId || !attachmentId || !savePath) {
+            throw new Error('Missing required arguments: message_id, attachment_id, or save_path');
           }
 
           const attachmentData = await this.gmail.users.messages.attachments.get({
             userId,
             messageId,
-            id: partId
+            id: attachmentId
           });
 
           const fileData = attachmentData.data.data;
@@ -981,7 +1044,7 @@ export class GmailTools {
 
           return {
             messageId,
-            partId,
+            attachmentId,
             savePath,
             status: 'success'
           };
@@ -1040,28 +1103,101 @@ export class GmailTools {
     }
 
     try {
-      const results = await Promise.all(
-        messageIds.map(async (messageId: string) => {
-          await this.gmail.users.messages.modify({
-            userId,
-            id: messageId,
-            requestBody: {
-              removeLabelIds: ['INBOX']
-            }
-          });
-          return {
-            messageId,
-            status: 'archived'
-          };
-        })
-      );
+      // Archive = remove the INBOX label. Use batchModify so the whole set is
+      // handled in a single request per 1000 ids (no per-message concurrency).
+      const CHUNK_SIZE = 1000;
+      const batchSizes: number[] = [];
+      for (let i = 0; i < messageIds.length; i += CHUNK_SIZE) {
+        const ids = messageIds.slice(i, i + CHUNK_SIZE);
+        await this.gmail.users.messages.batchModify({
+          userId,
+          requestBody: { ids, removeLabelIds: ['INBOX'] }
+        });
+        batchSizes.push(ids.length);
+      }
 
       return [{
         type: 'text',
-        text: JSON.stringify(results, null, 2)
+        text: JSON.stringify({
+          status: 'archived',
+          archived: messageIds.length,
+          requests: batchSizes.length,
+          batchSizes
+        }, null, 2)
       }];
     } catch (error) {
       console.error('Error archiving messages:', error);
+      throw error;
+    }
+  }
+
+  private async listLabels(args: Record<string, any>): Promise<Array<TextContent>> {
+    const userId = args[USER_ID_ARG];
+
+    if (!userId) {
+      throw new Error(`Missing required argument: ${USER_ID_ARG}`);
+    }
+
+    try {
+      const response = await this.gmail.users.labels.list({ userId });
+      const labels = (response.data.labels || []).map(label => ({
+        id: label.id,
+        name: label.name,
+        type: label.type
+      }));
+
+      return [{
+        type: 'text',
+        text: JSON.stringify(labels, null, 2)
+      }];
+    } catch (error) {
+      console.error('Error listing labels:', error);
+      throw error;
+    }
+  }
+
+  private async bulkModify(args: Record<string, any>): Promise<Array<TextContent>> {
+    const userId = args[USER_ID_ARG];
+    const messageIds: string[] = args.message_ids;
+    const addLabelIds: string[] = args.add_labels || [];
+    const removeLabelIds: string[] = args.remove_labels || [];
+
+    if (!userId) {
+      throw new Error(`Missing required argument: ${USER_ID_ARG}`);
+    }
+    if (!messageIds || messageIds.length === 0) {
+      throw new Error('Missing required argument: message_ids');
+    }
+    if (addLabelIds.length === 0 && removeLabelIds.length === 0) {
+      throw new Error('Provide at least one of add_labels or remove_labels');
+    }
+
+    try {
+      // Gmail's batchModify accepts up to 1000 ids per request; split larger lists.
+      const CHUNK_SIZE = 1000;
+      const batchSizes: number[] = [];
+      for (let i = 0; i < messageIds.length; i += CHUNK_SIZE) {
+        const ids = messageIds.slice(i, i + CHUNK_SIZE);
+        await this.gmail.users.messages.batchModify({
+          userId,
+          requestBody: { ids, addLabelIds, removeLabelIds }
+        });
+        batchSizes.push(ids.length);
+      }
+
+      return [{
+        type: 'text',
+        text: JSON.stringify({
+          status: 'success',
+          modified: messageIds.length,
+          requests: batchSizes.length,
+          batchSizes,
+          addLabelIds,
+          removeLabelIds
+        }, null, 2)
+      }];
+    } catch (error) {
+      console.error('Error modifying messages:', error);
       throw error;
     }
   }

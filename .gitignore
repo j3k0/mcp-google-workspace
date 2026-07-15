@@ -1,3 +1,5 @@
 /dist/
 /node_modules/
 /.*.json
+/test_settings.json
+.DS_Store
