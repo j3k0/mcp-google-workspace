@@ -4,9 +4,9 @@ import { google } from 'googleapis';
 import { USER_ID_ARG } from '../types/tool-handler.js';
 import { Buffer } from 'buffer';
 import fs from 'fs';
-import { decodeBase64Data, formatDraftEntry, renderEmailBody, resolveAttachmentPath } from './gmail-helpers.js';
+import { decodeBase64Data, extractAttachments, formatDraftEntry, renderEmailBody, resolveAttachmentPath } from './gmail-helpers.js';
 
-export { decodeBase64Data, formatDraftEntry, renderEmailBody, resolveAttachmentPath } from './gmail-helpers.js';
+export { decodeBase64Data, extractAttachments, formatDraftEntry, renderEmailBody, resolveAttachmentPath } from './gmail-helpers.js';
 
 export class GmailTools {
   private gmail: ReturnType<typeof google.gmail>;
@@ -573,19 +573,8 @@ export class GmailTools {
       // Extract text content
       const textContent = this.extractEmailText(email.data.payload || {});
 
-      // Get attachments if any
-      const attachments: Record<string, any> = {};
-      if (email.data.payload?.parts) {
-        for (const part of email.data.payload.parts) {
-          if (part.body?.attachmentId) {
-            attachments[part.partId!] = {
-              filename: part.filename,
-              mimeType: part.mimeType,
-              attachmentId: part.body.attachmentId
-            };
-          }
-        }
-      }
+      // Get attachments if any (nested multipart included)
+      const attachments = extractAttachments(email.data.payload);
 
       // Create simplified email object
       const result = {
@@ -634,19 +623,8 @@ export class GmailTools {
           // Extract text content
           const textContent = this.extractEmailText(email.data.payload || {});
 
-          // Get attachments if any
-          const attachments: Record<string, any> = {};
-          if (email.data.payload?.parts) {
-            for (const part of email.data.payload.parts) {
-              if (part.body?.attachmentId) {
-                attachments[part.partId!] = {
-                  filename: part.filename,
-                  mimeType: part.mimeType,
-                  attachmentId: part.body.attachmentId
-                };
-              }
-            }
-          }
+          // Get attachments if any (nested multipart included)
+          const attachments = extractAttachments(email.data.payload);
 
           // Create simplified email object
           return {
