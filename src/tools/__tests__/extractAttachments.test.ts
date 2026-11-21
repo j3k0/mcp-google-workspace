@@ -120,6 +120,20 @@ test('repeated filenames do not shadow each other', () => {
   );
 });
 
+test('a filename that shadows an Object.prototype member stays an ordinary key', () => {
+  const out = extractAttachments({
+    mimeType: 'multipart/mixed',
+    parts: [
+      { partId: '1', mimeType: 'application/pdf', filename: '__proto__', body: { attachmentId: 'proto' } },
+      { partId: '2', mimeType: 'application/pdf', filename: 'constructor', body: { attachmentId: 'ctor' } },
+    ],
+  });
+  assert.deepEqual(Object.keys(out).sort(), ['__proto__', 'constructor']);
+  assert.equal(out['__proto__'].attachmentId, 'proto');
+  assert.equal(out['constructor'].attachmentId, 'ctor');
+  assert.equal(Object.getPrototypeOf(out), null);
+});
+
 test('walks deeply nested multipart trees', () => {
   const out = extractAttachments({
     mimeType: 'multipart/mixed',
@@ -142,8 +156,7 @@ test('walks deeply nested multipart trees', () => {
 });
 
 test('returns an empty record for messages without attachments', () => {
-  assert.deepEqual(extractAttachments({ mimeType: 'text/plain', body: { data: 'aGk=' } }), {});
-  assert.deepEqual(extractAttachments({}), {});
-  assert.deepEqual(extractAttachments(null), {});
-  assert.deepEqual(extractAttachments(undefined), {});
+  for (const payload of [{ mimeType: 'text/plain', body: { data: 'aGk=' } }, {}, null, undefined]) {
+    assert.deepEqual(Object.keys(extractAttachments(payload)), []);
+  }
 });

@@ -73,7 +73,9 @@ export interface MessagePartLike {
  * filename gets a `#n` suffix so one file can never shadow another.
  */
 export function extractAttachments(payload: MessagePartLike | null | undefined): Record<string, EmailAttachment> {
-  const attachments: Record<string, EmailAttachment> = {};
+  // Null-prototype record: a filename such as `__proto__` or `constructor`
+  // stays an ordinary own property instead of touching Object.prototype.
+  const attachments: Record<string, EmailAttachment> = Object.create(null);
 
   const walk = (part: MessagePartLike | null | undefined): void => {
     if (!part) return;
