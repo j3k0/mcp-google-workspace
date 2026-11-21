@@ -49,6 +49,52 @@ export function resolveAttachmentPath(filePath: string): string {
   return resolved;
 }
 
+export interface EmailAttachment {
+  filename?: string | null;
+  mimeType?: string | null;
+  attachmentId: string;
+}
+
+export interface MessagePartLike {
+  partId?: string | null;
+  mimeType?: string | null;
+  filename?: string | null;
+  body?: { attachmentId?: string | null; size?: number | null; data?: string | null } | null;
+  parts?: MessagePartLike[] | null;
+}
+
+/**
+ * Collects every attachment part of a Gmail message payload, whatever its
+ * depth. Clients such as Apple Mail nest the file part inside
+ * multipart/alternative -> multipart/mixed instead of putting it at the root,
+ * so a walk over `payload.parts` alone silently reports no attachment.
+ *
+ * Keys are the filename (falling back to partId, then 'unnamed'); a repeated
+ * filename gets a `#n` suffix so one file can never shadow another.
+ */
+export function extractAttachments(payload: MessagePartLike | null | undefined): Record<string, EmailAttachment> {
+  const attachments: Record<string, EmailAttachment> = {};
+
+  const walk = (part: MessagePartLike | null | undefined): void => {
+    if (!part) return;
+    const attachmentId = part.body?.attachmentId;
+    if (attachmentId) {
+      const base = part.filename || part.partId || 'unnamed';
+      let key = base;
+      for (let i = 2; attachments[key]; i++) key = `${base}#${i}`;
+      attachments[key] = {
+        filename: part.filename,
+        mimeType: part.mimeType,
+        attachmentId,
+      };
+    }
+    for (const child of part.parts ?? []) walk(child);
+  };
+
+  walk(payload);
+  return attachments;
+}
+
 interface MessageHeaderLike {
   name?: string | null;
   value?: string | null;
