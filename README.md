@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/j3k0-mcp-google-workspace-badge.png)](https://mseep.ai/app/j3k0-mcp-google-workspace)
+
 # MCP Google Workspace Server
 
 A Model Context Protocol server for Google Workspace services. This server provides tools to interact with Gmail and Google Calendar through the MCP protocol.
